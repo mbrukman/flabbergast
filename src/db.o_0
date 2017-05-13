@@ -1,6 +1,7 @@
 driver_config_tmpl : Template {
 	driver_tmpl : Template {
 		friendly_name : Required
+		camel_name : Required
 		jdbc_name : Required
 		ado_net_name : Required
 		params : Required
@@ -33,6 +34,7 @@ driver_config_tmpl : Template {
 		ado_net_db_param : "Database"
 		ado_net_user_param : "User Id"
 		ado_net_password_param : "Password"
+		default_port : Required
 	}
 
 	weird_host_driver : Template driver_tmpl {
@@ -72,9 +74,11 @@ driver_config_tmpl : Template {
 	drivers : Template {
 		mssql : Template host_driver {
 			friendly_name : "Microsoft SQL Server"
+			camel_name : "SqlServer"
 			jdbc_name : "sqlserver:"
 			ado_net_name : "System.Data.SqlClient"
 			jdbc_db_param : "databaseName"
+			default_port : 1433
 			params : {}
 			fixed_params : [
 				fixed_param_tmpl {
@@ -87,10 +91,12 @@ driver_config_tmpl : Template {
 		}
 		mysql : Template host_driver {
 			friendly_name : "mySQL"
+			camel_name : "MySql"
 			jdbc_name : "mysql:"
 			ado_net_name : "MySql.Data.MySqlClient"
 			ado_net_user_param : "Uid"
 			ado_net_password_param : "Pwd"
+			default_port : 3306
 			params : {}
 			fixed_params : [
 				fixed_param_tmpl {
@@ -115,6 +121,7 @@ driver_config_tmpl : Template {
 		}
 		oracle_host : Template weird_host_driver {
 			friendly_name : "Oracle via Host"
+			camel_name : "Oracle"
 			jdbc_name : "oracle:oci:@"
 			ado_net_name : "Oracle.DataAccess.Client"
 			default_port : 1521
@@ -123,6 +130,7 @@ driver_config_tmpl : Template {
 		}
 		oracle_tns : Template file_driver {
 			friendly_name : "Oracle via TNS"
+			camel_name : "OracleTns"
 			path_name : "tnsname"
 			jdbc_name : "oracle:oci:@"
 			ado_net_name : "Oracle.DataAccess.Client"
@@ -132,8 +140,10 @@ driver_config_tmpl : Template {
 		}
 		postgresql : Template host_driver {
 			friendly_name : "PostgreSQL"
+			camel_name : "PostgreSql"
 			jdbc_name : "postgresql:"
 			ado_net_name : "Npgsql"
+			default_port : 5432
 			params : {
 				ssl : bool_param {
 					jdbc_param : "ssl"
@@ -152,6 +162,7 @@ driver_config_tmpl : Template {
 		}
 		sqlite : Template file_driver {
 			friendly_name : "SQLite"
+			camel_name : "SqlLite"
 			jdbc_name : "sqlite:"
 			ado_net_name : "System.Data.SQLite"
 			ado_net_file_param : "Data Source"
@@ -161,6 +172,7 @@ driver_config_tmpl : Template {
 
 		sqlite_res : Template resource_driver {
 			friendly_name : "SQLite via Resource"
+			camel_name : "SqlLiteResource"
 			jdbc_name : "sqlite:"
 			ado_net_name : "System.Data.SQLite"
 			ado_net_file_param : "Data Source"
@@ -181,7 +193,5 @@ driver_config_tmpl : Template {
 
 	value :
 		For driver : drivers {}, provider : Name
-			Reduce acc & (driver {}).value
-			With acc : ""
-
+			Select provider : driver {}
 }

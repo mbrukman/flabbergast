@@ -11,7 +11,7 @@ MAGIC_TARGETS = \
 	platform/cli/compiler-cli.cs \
 	platform/cli/db-cli.cs \
 	platform/jvm/compiler-jvm.a \
-	platform/jvm/runtime/flabbergast/db-jvm.java \
+	platform/jvm/db-jvm.a \
 	$(NULL)
 
 all: $(MAGIC_TARGETS)
@@ -25,7 +25,7 @@ platform/jvm/compiler-jvm.a: platform/jvm/compiler-jvm.o_0 src/compiler.o_0
 platform/cli/compiler-cli.cs: platform/cli/compiler-cli.o_0 src/compiler.o_0
 	FLABBERGAST_PATH=$(FLABBERGAST_PATH):src $(FLABBERGAST) -o $@ $(firstword $^)
 
-platform/jvm/runtime/flabbergast/db-jvm.java: platform/jvm/db-jvm.o_0 src/db.o_0
+platform/jvm/db-jvm.a: platform/jvm/db-jvm.o_0 src/db.o_0
 	FLABBERGAST_PATH=$(FLABBERGAST_PATH):src $(FLABBERGAST) -o $@ $(firstword $^)
 
 platform/cli/db-cli.cs: platform/cli/db-cli.o_0 src/db.o_0

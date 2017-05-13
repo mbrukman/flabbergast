@@ -2,13 +2,13 @@ db_lib : From lib:db
 
 file_uri_man : "\\fB:\\fR"
 
-net_uri_man : "\\fB:\\fR[user[\\fB:\\fRpassword]\\fB@\\fR]host[\\fB:\\fRport]\\fB/\\fRcatalog"
+net_uri_man : "\\fB://\\fR[user[\\fB:\\fRpassword]\\fB@\\fR]host[\\fB:\\fRport]\\fB/\\fRcatalog"
 driver_config : db_lib.driver_config_tmpl {
 	driver_tmpl +: {
 		uri_format : Required
 
 		value :
-			".SS \(friendly_name) (\(uri_schema))\nThis database uses the \\fBsql:\(uri_schema)\\fR\(uri_format Enforce Str) URI format.\n\n" &
+			".SS \(friendly_name) (\(uri_schema))\nThis database uses the \\fBsql+\(uri_schema)\\fR\(uri_format Enforce Str) URI format.\n\n" &
 			(For param : params, param_name : Name, pos : Ordinal
 				Reduce (If pos > 1 Then acc Else "") & ".TP\n\(param_name)\n\(param.man)\n"
 				With acc : "No parameters are supported.\n") & "\n"
@@ -56,20 +56,20 @@ For ADO.NET, it is the user's responsibility to install the assembly into the GA
 .SH URI FORMATS
 Presently, databases take one of the following URI schemes:
 .TP
-\\fBsql:\\fRprovider\(file_uri_man)path
+\\fBsql+\\fRprovider\(file_uri_man)path
 For databases that take local files as input.
 .TP
-\\fBsql:\\fRprovider\(net_uri_man)
+\\fBsql+\\fRprovider\(net_uri_man)
 For databases that connect to a server. The remote \\fIuser\\fR and \\fIpassword\\fR maybe specified, if needed. The remote \\fIhost\\fR must be supplied with an optional \\fIport\\fR. Finally, the \\fIcatalog\\fR or database must be provided.
 .TP
-\\fBsql:\\fRprovider\(file_uri_man)custom
+\\fBsql+\\fRprovider\(file_uri_man)custom
 For databases that take custom data sources as input.
 
 At the end of either, parameters maybe given in URL standard \\fB?\\fIkey\\fB=\\fIvalue\\fB&\\fIkey\\fB=\\fIvalue\\fR style. The allow parameters are described for each database.
 
 .SH SUPPORTED DATABASES (PROVIDERS)
 " &
-driver_config.value &
+(For driver : driver_config.value Reduce acc & driver.value With acc : "") &
 "
 .SH SEE ALSO
 .BR flabbergast(1),

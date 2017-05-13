@@ -1,16 +1,23 @@
 package flabbergast;
 
+import java.io.PrintStream;
+
 public interface ErrorCollector {
-  void reportExpressionTypeError(CodeRegion where, TypeSet new_type, TypeSet existing_type);
+  static ErrorCollector of(PrintStream stream) {
+    return (where, error) ->
+        stream.printf(
+            "%s:%d:%d-%d:%d: %s\n",
+            where.getFileName(),
+            where.getStartLine(),
+            where.getStartColumn(),
+            where.getEndLine(),
+            where.getEndColumn(),
+            error);
+  }
 
-  void reportForbiddenNameAccess(CodeRegion where, String name);
+  static ErrorCollector toStandardError() {
+    return of(System.err);
+  }
 
-  void reportLookupTypeError(
-      CodeRegion where, String name, TypeSet new_type, TypeSet existing_type);
-
-  void reportParseError(String filename, int index, int row, int column, String message);
-
-  void reportRawError(CodeRegion where, String message);
-
-  void reportSingleTypeError(CodeRegion where, TypeSet type);
+  void emitError(SourceLocation location, String error);
 }

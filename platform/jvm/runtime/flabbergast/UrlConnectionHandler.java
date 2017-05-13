@@ -1,33 +1,30 @@
 package flabbergast;
 
-import flabbergast.TaskMaster.LibraryFailure;
-import java.io.InputStream;
+import java.io.DataInputStream;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
+import java.util.Set;
 
-public abstract class UrlConnectionHandler implements UriHandler {
-  protected abstract URL convert(String uri) throws Exception;
+abstract class UrlConnectionHandler implements UriHandler, UriService {
+  protected abstract Maybe<URL> convert(URI uri);
 
   @Override
-  public final Future resolveUri(TaskMaster task_master, String uri, Ptr<LibraryFailure> reason) {
+  public UriHandler create(ResourcePathFinder finder, Set<LoadRule> flags) {
+    return flags.contains(LoadRule.SANDBOXED) ? null : this;
+  }
 
-    try {
-      URL url = convert(uri);
-      if (url == null) {
-        reason.set(LibraryFailure.MISSING);
-        return null;
-      }
-      URLConnection conn = new URL(uri).openConnection();
-      byte[] data = new byte[conn.getContentLength()];
-      InputStream inputStream = conn.getInputStream();
-      for (int offset = 0;
-          offset < data.length;
-          offset += inputStream.read(data, offset, data.length - offset)) ;
-
-      inputStream.close();
-      return new Precomputation(data);
-    } catch (Exception e) {
-      return new FailureFuture(task_master, new NativeSourceReference(uri), e.getMessage());
-    }
+  @Override
+  public final Maybe<Future> resolveUri(TaskMaster taskMaster, URI uri) {
+    return convert(uri)
+        .map(
+            url -> {
+              final URLConnection conn = url.openConnection();
+              final byte[] data = new byte[conn.getContentLength()];
+              try (final DataInputStream inputStream = new DataInputStream(conn.getInputStream())) {
+                inputStream.readFully(data);
+              }
+              return Any.of(data).future();
+            });
   }
 }

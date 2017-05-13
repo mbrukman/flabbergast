@@ -23,9 +23,11 @@ JLINE_JAR="$JAR_PATH/jline2.jar"
 AC_SUBST([JLINE_JAR])
 ASM_JAR="$JAR_PATH/asm4.jar"
 AC_SUBST([ASM_JAR])
+ASM_COMMONS_JAR="$JAR_PATH/asm4-commons.jar"
+AC_SUBST([ASM_COMMONS_JAR])
 COMMONS_CLI_JAR="$JAR_PATH/commons-cli.jar"
 AC_SUBST([COMMONS_CLI_JAR])
-JSON_JAR="$JAR_PATH/json.jar"
+JSON_JAR="$JAR_PATH/javax.json.jar"
 AC_SUBST([JSON_JAR])
 
 if test "$enable_jvm" != no; then

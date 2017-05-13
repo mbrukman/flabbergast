@@ -1,40 +1,61 @@
 package flabbergast;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.stream.Stream;
 
-class RevCons<T> {
+abstract class RevCons<T> {
 
-  public static String toString(RevCons<Character> list) {
-    if (list == null) return "";
-    char[] chars = new char[list.index + 1];
-    for (RevCons<Character> current = list; current != null; current = current.tail) {
-      chars[current.index] = current.head;
-    }
-    return new String(chars);
+  public static <T> RevCons<T> cons(T head, RevCons<T> tail) {
+    return new RevCons<T>() {
+
+      @Override
+      protected void build(Stream.Builder<T> builder) {
+        tail.build(builder);
+        builder.accept(head);
+      }
+
+      @Override
+      public T head() {
+        return head;
+      }
+
+      @Override
+      public RevCons<T> pop() {
+        return tail;
+      }
+    };
   }
 
-  private final T head;
-  private final int index;
-  private final RevCons<T> tail;
+  public static <T> RevCons<T> empty() {
+    return new RevCons<T>() {
+      @Override
+      protected void build(Stream.Builder<T> builder) {}
 
-  RevCons(T item, RevCons<T> tail) {
-    head = item;
-    this.tail = tail;
-    index = tail == null ? 0 : (tail.index + 1);
+      @Override
+      public T head() {
+        return null;
+      }
+
+      @Override
+      public RevCons<T> pop() {
+        return this;
+      }
+    };
   }
 
-  private void assign(List<T> array) {
-    array.set(index, head);
-    if (tail != null) {
-      tail.assign(array);
-    }
+  public static String toString(RevCons<Integer> list) {
+    int[] codepoints = list.stream().mapToInt(Integer::intValue).toArray();
+    return new String(codepoints, 0, codepoints.length);
   }
 
-  List<T> toList() {
-    List<T> array = new ArrayList<T>(Collections.nCopies(index + 1, (T) null));
-    assign(array);
-    return array;
+  protected abstract void build(Stream.Builder<T> builder);
+
+  public abstract T head();
+
+  public abstract RevCons<T> pop();
+
+  Stream<T> stream() {
+    Stream.Builder<T> builder = Stream.builder();
+    build(builder);
+    return builder.build();
   }
 }

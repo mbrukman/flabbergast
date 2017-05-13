@@ -51,7 +51,7 @@ class DbParser {
 public static DbConnection Parse(string provider, string uri_fragment, Dictionary<string, string> in_properties, ResourcePathFinder finder, out string err) {
 err = null;
 " &
-driver_config.value &
+(For driver : driver_config.value Reduce acc & driver.value With acc : "") &
 "
 err = string.Format(\"Unknown database provider “{0}”.\", provider);
 return null;

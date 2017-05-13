@@ -10,6 +10,12 @@ DEP_ASM="
 			<artifactId>asm</artifactId>
 			<version>5.0.3</version>
 			<scope>runtime</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.ow2.asm</groupId>
+			<artifactId>asm-commons</artifactId>
+			<version>5.0.3</version>
+			<scope>runtime</scope>
 		</dependency>"
 DEP_JLINE="
 		<dependency>
@@ -27,14 +33,14 @@ DEP_CLI="
 		</dependency>"
 DEP_JSON="
 		<dependency>
-			<groupId>org.json</groupId>
-			<artifactId>json</artifactId>
-			<version>20090211</version>
+			<groupId>javax.json</groupId>
+			<artifactId>javax.json-api</artifactId>
+			<version>1.1</version>
 			<scope>runtime</scope>
 		</dependency>"
 DEP_FL_R="
 		<dependency>
-			<groupId>com.github.apmasell.flabbergast</groupId>
+			<groupId>org.flabbergast</groupId>
 			<artifactId>flabbergast-runtime</artifactId>
 			<version>${VERSION}</version>
 			<scope>runtime</scope>
@@ -48,13 +54,13 @@ upload () {
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 	<modelVersion>4.0.0</modelVersion>
  
-	<groupId>com.github.apmasell.flabbergast</groupId>
+	<groupId>org.flabbergast</groupId>
 	<artifactId>${PKG}</artifactId>
 	<version>${VERSION}</version>
 	<packaging>jar</packaging>
  
 	<name>Flabbergast Configuration Language ($2)</name>
-	<url>https://github.com/apmasell/flabbergast</url>
+	<url>https://flabbergast.org</url>
 	<description>The $2 for the Flabbergast Configuration Language on the JVM.</description>
 
 	<licenses>
@@ -80,9 +86,9 @@ upload () {
 	</distributionManagement>
 
 	<scm>
-		<connection>scm:git:git@github.com:apmasell/flabbergast.git</connection>
-		<developerConnection>scm:git:git@github.com:apmasell/flabbergast.git</developerConnection>
-		<url>git@github.com:apmasell/flabbergast.git</url>
+		<connection>scm:git:git@github.com:flabbergast-config/flabbergast.git</connection>
+		<developerConnection>scm:git:git@github.com:flabbergast-config/flabbergast.git</developerConnection>
+		<url>git@github.com:flabbergast-config/flabbergast.git</url>
 	</scm>
  
 	<dependencies>$3

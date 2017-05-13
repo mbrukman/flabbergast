@@ -30,3 +30,5 @@ FLABBERGAST="java -XX:MaxPermSize=512m flabbergast.MainPrinter" ./bootstrap genc
 make clean all check
 
 ./mkwww
+
+inkscape -e www/nuget-icon.png -w 64 -h 64 flabbergast.svg

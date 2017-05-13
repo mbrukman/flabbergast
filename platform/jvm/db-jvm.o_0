@@ -1,61 +1,97 @@
 db_lib : From lib:db
+ar_lib : From lib:unix/ar
+value : (ar_lib.archive_tmpl {
+	driver_config : db_lib.driver_config_tmpl {
+		driver_tmpl +: {
+			parent_class : Required
+			extra_ctor_params : Required
+			parse_method : Required
 
-driver_config : db_lib.driver_config_tmpl {
-	driver_tmpl +: {
-		tail : Required
-		parse : Required
+			value : ar_lib.file_tmpl {
+				file_name : camel_name Enforce Str & "UriHandler.java"
+				contents : "package flabbergast;
 
-		value :
-			"if (provider.equals(\"\(uri_schema)\")) {\n" &
-			parse Enforce Str &
-			"\tif (!Arrays.asList(\(param_list Enforce Str)).containsAll(in_properties.stringPropertyNames())) { err.set(\"Unknown parameters specified.\"); return null; }\n" &
-			(For param : params, param_name : Name
-				Reduce acc & "\tif (in_properties.containsKey(\"\(param_name)\")) {\n" &
-					(If param.validate Is Null Then "" Else "\tif (!Pattern.matches(\"\(param.validate Enforce Str)\", in_properties.getProperty(\"\(param_name)\"))) { err.set(\"The value for “\(param_name)” is not allowed.\"); return null; }\n") &
-					"\t\tout_properties.setProperty(\"\(param.jdbc_param)\", in_properties.getProperty(\"\(param_name)\"));\n\t}\n"
-				With acc : "") &
-			(For fixed_param : fixed_params Where !(fixed_param.jdbc_param Is Null) Reduce acc & "\tout_properties.setProperty(\"\(fixed_param.jdbc_param)\", \(fixed_param.jdbc_value));\n" With acc : "") &
-			"\treturn \"jdbc:\(jdbc_name Enforce Str)\"\(tail Enforce Str);\n}\n"
-
-	}
-
-	file_driver +: {
-		parse : "\nif (!Pattern.matches(\"\(file_regex)\", uri_fragment)) { err.set(\"Invalid file specified.\"); return null; }\n"
-		tail : " + uri_fragment"
-	}
-
-	resource_driver +: {
-		extensions_str : For ex : extensions Reduce acc & ", \"\(ex)\"" With acc : ""
-		parse : "\nif (!Pattern.matches(\"^[A-Za-z0-9/]*$\", uri_fragment)) { err.set(\"Invalid resource file specified.\"); return null; }\njava.util.List<java.io.File> \(Id)_files = finder.findAll(uri_fragment\(extensions_str));\nif(\(Id)_files.size() == 0) { err.set(\"Cannot find resource “\" + uri_fragment + \"”.\"); return null; }\n"
-		tail : " + \(Id)_files.get(0).getAbsolutePath()"
-	}
-
-	host_driver +: {
-		parse :
-			"\tString db_fragment = JdbcUriHandler.parseUri(uri_fragment, out_properties, \"\(jdbc_user_param)\", \"\(jdbc_password_param)\", \(If jdbc_db_param Is Null Then "null" Else "\"\(jdbc_db_param)\""), err);\n\tif(db_fragment == null) return null;\n"
-		tail : "+ \"//\" + db_fragment"
-	}
-	weird_host_driver +: {
-		parse :
-			"\tString db_fragment = JdbcUriHandler.parseUri(uri_fragment, out_properties, \"\(jdbc_user_param)\", \"\(jdbc_password_param)\", null, err);\n\tif(db_fragment == null) return null;\n\tString[] outer = db_fragment.split(\"/\");\n\tString[] inner = outer[0].split(\":\");\n"
-		tail : "+ String.format(\"descriptor\", inner[0], inner.length > 1 ? inner[1] : \"\(default_port)\", outer[1])"
-		host_part : "$1"
-		port_part : "$2"
-		db_part : "$2"
-	}
-}
-
-value : "package flabbergast;
-import java.util.Arrays;
+import java.io.File;
+import java.net.URI;
+import java.util.List;
 import java.util.Properties;
 import java.util.regex.Pattern;
-class JdbcParser {
-public static String parse(String provider, String uri_fragment, Properties in_properties, Properties out_properties, ResourcePathFinder finder, Ptr<String> err) {
-" &
-driver_config.value &
-"
-err.set(String.format(\"Unknown database provider “%s”.\", provider));
-return null;
-}
-}
-"
+import org.kohsuke.MetaInfServices;
+
+@MetaInfServices(UriService.class)
+public final class \(camel_name Enforce Str)UriHandler extends \(parent_class Enforce Str) {
+	public \(camel_name Enforce Str)UriHandler() {
+		super(\"\(uri_schema Enforce Str)\", \"\(friendly_name Enforce Str)\"\(extra_ctor_params Enforce Str));
+	}
+\(parse_method Enforce Str)
+	@Override
+	protected void parseProperty(String name, String value, Properties output) {
+		switch(name) {
+" & (For param : params, param_name : Name
+		Reduce acc &
+			"\t\t\tcase \"\(param_name)\": " &
+			(If param.validate Is Null Then "" Else "\t\t\t\tif (!Pattern.matches(\"\(param.validate Enforce Str)\", value)) { throw new IllegalArgumentException(\"The value for “\(param_name)” is not allowed.\"); }\n") &
+			"\t\t\t\toutput.setProperty(\"\(param.jdbc_param)\", value);\n\t\t\t\tbreak;\n"
+				With acc : "") & "
+			default:
+				throw new IllegalArgumentException(String.format(\"\(friendly_name Enforce Str) does not take parameter “%s”.\", name));
+		}
+	}
+	@Override
+	protected void setFixed(Properties output) {
+\(For fixed_param : fixed_params Where !(fixed_param.jdbc_param Is Null) Reduce acc & "\t\toutput.setProperty(\"\(fixed_param.jdbc_param Enforce Str)\", \(fixed_param.jdbc_value));\n" With acc : "")
+	}
+}"
+			}
+		}
+
+		file_driver +: {
+			parent_class : "BaseJdbcUriService"
+			extra_ctor_params : ", false"
+			parse_method : "
+		@Override
+		protected Maybe<String> parse(URI uri, Properties properties, ResourcePathFinder finder) {
+			if (!Pattern.matches(\"\(file_regex)\", uri.getSchemeSpecificPart())) {
+				return Maybe.error(\"Invalid file specified.\");
+			}
+			return Maybe.of(\"jdbc:\(jdbc_name)\" + uri.getSchemeSpecificPart());
+		}"
+		}
+
+		resource_driver +: {
+			parent_class : "BaseJdbcResourceUriService"
+			extra_ctor_params : For ex : extensions Reduce "\(acc), \"\(ex)\"" With acc : ""
+			parse_method : "
+	@Override
+	protected Maybe<String> parse(File file, Properties properties) {
+		return Maybe.of(\"jdbc:\(jdbc_name)\" + file.getAbsolutePath());
+	}"
+		}
+
+		host_driver +: {
+			parent_class : "BaseJdbcHostUriService"
+			extra_ctor_params : ", \"\(jdbc_user_param)\", \"\(jdbc_password_param)\", \(default_port Enforce Int)"
+			parse_method : "
+	@Override
+	protected Maybe<String> parse(String host, int port, String catalog, Properties properties) {
+		\(If jdbc_db_param Is Null Then "" Else "properties.setProperty(\"\(jdbc_db_param)\", catalog);")
+		return Maybe.of(\"jdbc:\(jdbc_name)//\" + host + \":\" + port \(If jdbc_db_param Is Null Then "+ \"/\" + catalog" Else ""));
+	}"
+		}
+		weird_host_driver +: {
+			parent_class : "BaseJdbcHostUriService"
+			extra_ctor_params : ", \"\(jdbc_user_param)\", \"\(jdbc_password_param)\", \(default_port Enforce Int)"
+			parse_method : "
+	@Override
+	protected Maybe<String> parse(String host, int port, String catalog, Properties properties) {
+		return Maybe.of(String.format(\"jdbc:\(jdbc_name)\(descriptor)\", host, port, catalog));
+	}"
+			host_part : "%1$s"
+			port_part : "%2$d"
+			db_part : "%2$s"
+		}
+	}
+	args : For driver : driver_config.value Select driver.value
+}).value
+
+

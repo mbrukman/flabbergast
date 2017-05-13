@@ -36,6 +36,7 @@ JAVA_RUNTIME_DEPS = \
 
 JAVA_COMPILER_DEPS = \
 	$(ASM_JAR) \
+	$(ASM_COMMONS_JAR) \
 	$(COMMONS_CLI_JAR) \
 	$(NULL)
 
@@ -66,14 +67,16 @@ flabbergast-$(VERSION).jar: $(RUNTIME_INPUTS) $(COMPILER_INPUTS) compiler-jvm.a
 	rm -rf .build
 	mkdir .build
 	cd .build && for each in $(sort $(JAVA_RUNTIME_DEPS) $(JAVA_COMPILER_DEPS)); do $(JAR) xf $$each; done
-	rm -rf compiler-generated
-	mkdir -p compiler-generated/flabbergast && cd compiler-generated/flabbergast && $(AR) x ../../compiler-jvm.a
-	CLASSPATH=$(METAINF_JAR) $(JAVAC) -g -encoding UTF-8 -cp .build -sourcepath runtime:compiler:compiler-generated  -d .build $(RUNTIME_INPUTS) $(COMPILER_INPUTS)
+	rm -rf fat-generated
+	mkdir -p fat-generated/flabbergast && cd fat-generated/flabbergast && $(AR) x ../../compiler-jvm.a && $(AR) x ../../db-jvm.a
+	CLASSPATH=$(METAINF_JAR) $(JAVAC) -g -encoding UTF-8 -cp .build -sourcepath runtime:compiler:fat-generated  -d .build $(RUNTIME_INPUTS) $(COMPILER_INPUTS)
 	$(JAR) cf "flabbergast-${VERSION}.jar" -C .build .
 	rm -rf .build
 else
-flabbergast-runtime-$(VERSION).jar flabbergast-runtime-$(VERSION)-sources.jar flabbergast-runtime-$(VERSION)-javadoc.jar: runtime.manifest $(RUNTIME_INPUTS)
-	CLASSPATH=$(subst $(SPACE),:,$(METAINF_JAR) $(JAVA_RUNTIME_DEPS)) ./jarc runtime $(VERSION)
+flabbergast-runtime-$(VERSION).jar flabbergast-runtime-$(VERSION)-sources.jar flabbergast-runtime-$(VERSION)-javadoc.jar: runtime.manifest $(RUNTIME_INPUTS) db-jvm.a
+	rm -rf runtime-generated
+	mkdir -p runtime-generated/flabbergast && cd runtime-generated/flabbergast && $(AR) x ../../db-jvm.a
+	CLASSPATH=$(subst $(SPACE),:,$(METAINF_JAR) $(JAVA_RUNTIME_DEPS)) ./jarc runtime $(VERSION) runtime-generated
 
 flabbergast-compiler-$(VERSION).jar flabbergast-compiler-$(VERSION)-sources.jar flabbergast-compiler-$(VERSION)-javadoc.jar: compiler.manifest $(COMPILER_INPUTS) flabbergast-runtime-$(VERSION).jar compiler-jvm.a
 	rm -rf compiler-generated

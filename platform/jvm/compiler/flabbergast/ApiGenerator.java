@@ -1,7 +1,11 @@
 package flabbergast;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
@@ -10,6 +14,20 @@ import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 
 class ApiGenerator {
+  private class AccumulateNames implements Function<String, String> {
+    String base;
+
+    @Override
+    public String apply(String input) {
+      if (base == null) {
+        base = input;
+      } else {
+        base = base + "." + input;
+      }
+      return base;
+    }
+  }
+
   public static ApiGenerator create(String library_name, String github)
       throws ParserConfigurationException {
     DocumentBuilderFactory docFactory = DocumentBuilderFactory.newInstance();
@@ -29,9 +47,8 @@ class ApiGenerator {
     return new ApiGenerator(doc, node, new String[0]);
   }
 
-  private Element _desc = null;
+  private Element description = null;
   private final Document document;
-  private final Map<Environment, Boolean> environments = new HashMap<Environment, Boolean>();
 
   private final String[] names;
   private final Node node;
@@ -56,82 +73,68 @@ class ApiGenerator {
     getDescription().appendChild(node);
   }
 
-  public void collectEnvironment(Environment environment) {
-    if (!environments.containsKey(environment)) {
-      environments.put(environment, true);
-      environment.collectUses(this);
-    }
-  }
-
   public ApiGenerator createChild(
-      String name, CodeRegion region, TypeSet type, boolean informative) {
+      String name, SourceLocation location, boolean informative, String... types) {
     Element node =
         document.createElementNS(document.getDocumentElement().getNamespaceURI(), "o_0:attr");
     node.setAttributeNS(document.getDocumentElement().getNamespaceURI(), "name", name);
     node.setAttributeNS(
         document.getDocumentElement().getNamespaceURI(),
         "startline",
-        Integer.toString(region.getStartRow()));
+        Integer.toString(location.getStartLine()));
     node.setAttributeNS(
         document.getDocumentElement().getNamespaceURI(),
         "startcol",
-        Integer.toString(region.getStartColumn()));
+        Integer.toString(location.getStartColumn()));
     node.setAttributeNS(
         document.getDocumentElement().getNamespaceURI(),
         "endline",
-        Integer.toString(region.getEndRow()));
+        Integer.toString(location.getEndLine()));
     node.setAttributeNS(
         document.getDocumentElement().getNamespaceURI(),
         "endcol",
-        Integer.toString(region.getEndColumn()));
+        Integer.toString(location.getEndColumn()));
     node.setAttributeNS(
         document.getDocumentElement().getNamespaceURI(),
         "informative",
         informative ? "true" : "false");
     this.node.appendChild(node);
 
-    String base_name = name;
-    int it = 0;
-    do {
-      Element def_node =
-          document.createElementNS(document.getDocumentElement().getNamespaceURI(), "o_0:def");
-      def_node.appendChild(document.createTextNode(base_name));
-      node.appendChild(def_node);
-      if (it < names.length) {
-        base_name = names[it] + "." + base_name;
-      }
-    } while (it++ < names.length);
-    String[] new_names;
-    if (!type.contains(Type.Template)) {
-      new_names = new String[0];
+    Arrays.stream(names)
+        .map(new AccumulateNames())
+        .map(base -> base + "." + name)
+        .forEach(
+            defName -> {
+              Element defNode =
+                  document.createElementNS(
+                      document.getDocumentElement().getNamespaceURI(), "o_0:def");
+              defNode.appendChild(document.createTextNode(defName));
+              node.appendChild(defNode);
+            });
+    String[] newNames;
+    if (Arrays.stream(types).anyMatch(type -> type.equals("Template"))) {
+      newNames = new String[0];
     } else {
-      new_names = new String[names.length + 1];
-      System.arraycopy(names, 0, new_names, 0, names.length);
-      new_names[names.length] = name;
+      newNames = Stream.concat(Stream.of(name), Arrays.stream(names)).toArray(String[]::new);
     }
 
-    if (!type.hasAll()) {
-      for (Type t : Type.values()) {
-        if (!type.contains(t)) {
-          continue;
-        }
-        Element type_node =
-            document.createElementNS(document.getDocumentElement().getNamespaceURI(), "o_0:type");
-        type_node.appendChild(document.createTextNode(t == Type.Unit ? "Null" : t.toString()));
-        node.appendChild(type_node);
-      }
+    for (String type : types) {
+      Element type_node =
+          document.createElementNS(document.getDocumentElement().getNamespaceURI(), "o_0:type");
+      type_node.appendChild(document.createTextNode(type));
+      node.appendChild(type_node);
     }
-    return new ApiGenerator(document, node, new String[0]);
+    return new ApiGenerator(document, node, newNames);
   }
 
   private Element getDescription() {
-    if (_desc == null) {
-      _desc =
+    if (description == null) {
+      description =
           document.createElementNS(
               getDocument().getDocumentElement().getNamespaceURI(), "o_0:description");
-      node.appendChild(_desc);
+      node.appendChild(description);
     }
-    return _desc;
+    return description;
   }
 
   public Document getDocument() {
@@ -154,27 +157,16 @@ class ApiGenerator {
     }
   }
 
-  public void registerUse(Iterable<? extends Object> names, String... suffixes) {
-    StringBuilder sb = new StringBuilder();
-    boolean first = true;
-    for (Object name : names) {
-      if (first) {
-        first = false;
-      } else {
-        sb.append(".");
-      }
-      sb.append(name.toString());
-    }
+  public void registerUse(Stream<String> names, String... suffixes) {
+    String baseName = names.collect(Collectors.joining("."));
     if (suffixes.length == 0) {
-      registerUse(sb.toString());
+      registerUse(baseName);
     } else {
-      if (sb.length() > 0) {
-        sb.append(".");
+      Stream<String> stream = Arrays.stream(suffixes);
+      if (baseName.length() > 0) {
+        stream = stream.map(suffix -> baseName + "." + suffix);
       }
-      String prefix = sb.toString();
-      for (String suffix : suffixes) {
-        registerUse(prefix + suffix);
-      }
+      stream.forEach(this::registerUse);
     }
   }
 

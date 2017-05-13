@@ -1,6 +1,6 @@
 package flabbergast;
 
-/** Delegate for the callback from a computation. */
+/** Receive a boxed value as the result value of a {@link Future}. */
 public interface ConsumeResult {
-  void consume(Object result);
+  void consume(Any result);
 }

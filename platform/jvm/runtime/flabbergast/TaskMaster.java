@@ -1,5 +1,6 @@
 package flabbergast;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -8,24 +9,26 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Queue;
 import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.StreamSupport;
 
 /** Scheduler for computations. */
-public abstract class TaskMaster implements Iterable<Lookup> {
-  public enum LibraryFailure {
-    BAD_NAME,
-    CORRUPT,
-    MISSING
-  }
+public abstract class TaskMaster implements Iterable<BaseLookup> {
 
   private interface ReportError {
-    public void invoke(String error_msg);
+    void invoke(String errorMessage);
   }
 
-  private static ServiceLoader<UriService> URI_SERVICES = ServiceLoader.load(UriService.class);
+  private static final ServiceLoader<UriService> URI_SERVICES =
+      ServiceLoader.load(UriService.class);
+
+  public static boolean verifySymbol(String str) {
+    return verifySymbol(str, msg -> {});
+  }
 
   private static boolean verifySymbol(String str, ReportError error) {
     if (str.length() < 1) {
@@ -55,7 +58,7 @@ public abstract class TaskMaster implements Iterable<Lookup> {
         case Character.OTHER_NUMBER:
         case Character.TITLECASE_LETTER:
         case Character.UPPERCASE_LETTER:
-          continue;
+          break;
         default:
           error.invoke(
               String.format(
@@ -68,64 +71,39 @@ public abstract class TaskMaster implements Iterable<Lookup> {
   }
 
   public static boolean verifySymbol(Stringish strish) {
-    return verifySymbol(strish.toString(), (msg) -> {});
+    return verifySymbol(strish.toString(), msg -> {});
   }
 
   public static void verifySymbolOrThrow(String str) {
     verifySymbol(
         str,
-        (msg) -> {
+        msg -> {
           throw new IllegalArgumentException(msg);
         });
   }
 
-  private Queue<Future> computations = new LinkedList<Future>();
+  private final Queue<Future> computations = new LinkedList<>();
 
-  private Map<String, Future> external_cache = new HashMap<String, Future>();
+  private final Map<String, Future> externalCache = new HashMap<>();
 
-  private ArrayList<UriHandler> handlers = new ArrayList<UriHandler>();
+  private final ArrayList<UriHandler> handlers = new ArrayList<>();
 
   /** These are computations that have not completed. */
-  private Set<Lookup> inflight = new HashSet<Lookup>();
+  private final Set<BaseLookup> inflight = new HashSet<>();
 
-  private AtomicInteger next_id = new AtomicInteger();
+  private final AtomicInteger nextId = new AtomicInteger();
 
   public TaskMaster() {}
 
   void addAllUriHandlers(ResourcePathFinder finder, EnumSet<LoadRule> flags) {
-    for (UriService service : URI_SERVICES) {
-      UriHandler handler = service.create(finder, flags);
-      if (handler != null) {
-        addUriHandler(handler);
-      }
-    }
-    if (!flags.contains(LoadRule.SANDBOXED)) {
-      addUriHandler(SettingsHandler.INSTANCE);
-      addUriHandler(EnvironmentUriHandler.INSTANCE);
-      addUriHandler(FtpHandler.INSTANCE);
-      addUriHandler(HttpHandler.INSTANCE);
-      addUriHandler(FileHandler.INSTANCE);
-      ResourceHandler resource_handler = new ResourceHandler();
-      resource_handler.setFinder(finder);
-      addUriHandler(resource_handler);
-    }
-
-    addUriHandler(BuiltInLibraries.INSTANCE);
-    addUriHandler(StandardInterop.INSTANCE);
-    addUriHandler(new CurrentInformation(flags.contains(LoadRule.PRECOMPILED)));
-    if (flags.contains(LoadRule.PRECOMPILED)) {
-      LoadPrecompiledLibraries precomp = new LoadPrecompiledLibraries();
-      addUriHandler(precomp);
-      precomp.setFinder(finder);
-    }
+    StreamSupport.stream(URI_SERVICES.spliterator(), false)
+        .map(service -> service.create(finder, flags))
+        .filter(Objects::nonNull)
+        .forEach(this::addUriHandler);
   }
 
   public void addUriHandler(UriHandler handler) {
     handlers.add(handler);
-  }
-
-  public void addUriHandler(UriLoader handler) {
-    handlers.add(new UriInstantiator(handler));
   }
 
   protected void clearInFlight() {
@@ -133,61 +111,62 @@ public abstract class TaskMaster implements Iterable<Lookup> {
   }
 
   public void getExternal(String uri, ConsumeResult target) {
-    if (external_cache.containsKey(uri)) {
-      external_cache.get(uri).listen(target);
+    if (externalCache.containsKey(uri)) {
+      externalCache.get(uri).listen(target);
       return;
     }
-    if (uri.startsWith("lib:")) {
-      if (uri.length() < 5) {
-        reportExternalError(uri, LibraryFailure.BAD_NAME);
-        external_cache.put(uri, BlackholeFuture.INSTANCE);
-        return;
-      }
-      for (int it = 5; it < uri.length(); it++) {
-        if (uri.charAt(it) != '/' && !Character.isLetterOrDigit(uri.charAt(it))) {
-          reportExternalError(uri, LibraryFailure.BAD_NAME);
-          external_cache.put(uri, BlackholeFuture.INSTANCE);
-          return;
-        }
-      }
-    }
+    Maybe<URI> address = Maybe.of(uri).map(URI::new);
+    Maybe<Future> initial =
+        address
+            .filter(x -> x.getScheme().equals("lib"))
+            .map(URI::getSchemeSpecificPart)
+            .filter(
+                x ->
+                    x.length() == 0
+                        || x.chars().anyMatch(c -> c != '/' || !Character.isLetterOrDigit(c)))
+            .map(
+                x ->
+                    new FailureFuture(
+                        this,
+                        new NativeSourceReference(uri),
+                        String.format("“%s” is not a valid library name.", x)));
 
-    for (UriHandler handler : handlers) {
-      Ptr<LibraryFailure> reason = new Ptr<LibraryFailure>();
-      Future computation = handler.resolveUri(this, uri, reason);
-      if (reason.get() != null && reason.get() != LibraryFailure.MISSING) {
-        reportExternalError(uri, reason.get());
-        external_cache.put(uri, BlackholeFuture.INSTANCE);
-        return;
-      }
-      if (computation != null) {
-        external_cache.put(uri, computation);
-        computation.listen(target);
-        return;
-      }
-    }
-    reportExternalError(uri, LibraryFailure.MISSING);
-    external_cache.put(uri, BlackholeFuture.INSTANCE);
+    Future result =
+        Maybe.reduce(
+                initial,
+                handlers
+                    .stream()
+                    .map(handler -> () -> address.flatMap(x -> handler.resolveUri(this, x))))
+            .orElseGet(
+                () ->
+                    new FailureFuture(
+                        this,
+                        new NativeSourceReference(uri),
+                        String.format("Unable to resolve URI “%s”.", uri)));
+    externalCache.put(uri, result);
+    result.listen(target);
+  }
+
+  Set<BaseLookup> getInflight() {
+    return inflight;
   }
 
   public boolean hasInflightLookups() {
-    return inflight.size() > 0;
+    return !inflight.isEmpty();
   }
 
   @Override
-  public Iterator<Lookup> iterator() {
+  public Iterator<BaseLookup> iterator() {
     return inflight.iterator();
   }
 
-  public long nextId() {
-    return next_id.getAndIncrement();
+  long nextId() {
+    return nextId.getAndIncrement();
   }
 
-  public abstract void reportExternalError(String uri, LibraryFailure reason);
-
   /** Report an error during lookup. */
-  public void reportLookupError(Lookup lookup, Class<?> fail_type) {
-    if (fail_type == null) {
+  public void reportLookupError(BaseLookup lookup, String failType) {
+    if (failType == null) {
       reportOtherError(
           lookup.getSourceReference(),
           String.format("Undefined name %s”. Lookup was as follows:", lookup.getName()));
@@ -196,7 +175,7 @@ public abstract class TaskMaster implements Iterable<Lookup> {
           lookup.getSourceReference(),
           String.format(
               "Non-frame type %s while resolving name “%s”. Lookup was as follows:",
-              fail_type, lookup.getName()));
+              failType, lookup.getName()));
     }
   }
 
@@ -207,32 +186,21 @@ public abstract class TaskMaster implements Iterable<Lookup> {
   public void run() {
     Collections.sort(handlers, (a, b) -> a.getPriority() - b.getPriority());
     while (!computations.isEmpty()) {
-      Future task = computations.poll();
+      final Future task = computations.poll();
       task.compute();
     }
   }
 
   /** Add a computation to be executed. */
-  public void slot(final Future computation) {
-    if (computation instanceof Lookup && !inflight.contains(computation)) {
-      inflight.add((Lookup) computation);
-      computation.listenDelayed(result -> inflight.remove(computation));
-    }
+  void slot(Future computation) {
     computations.offer(computation);
   }
 
-  public boolean verifySymbol(final SourceReference source_reference, String str) {
-    return verifySymbol(
-        str,
-        new ReportError() {
-          @Override
-          public void invoke(String error_msg) {
-            reportOtherError(source_reference, error_msg);
-          }
-        });
+  public boolean verifySymbol(final SourceReference sourceReference, String str) {
+    return verifySymbol(str, errorMessage -> reportOtherError(sourceReference, errorMessage));
   }
 
-  public boolean verifySymbol(final SourceReference source_reference, Stringish strish) {
-    return verifySymbol(source_reference, strish.toString());
+  public boolean verifySymbol(final SourceReference sourceReference, Stringish strish) {
+    return verifySymbol(sourceReference, strish.toString());
   }
 }

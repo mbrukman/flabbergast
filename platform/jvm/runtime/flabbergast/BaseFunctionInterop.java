@@ -1,24 +1,37 @@
 package flabbergast;
 
-public abstract class BaseFunctionInterop<R> extends InterlockedLookup {
-  protected final Frame container;
+import java.util.function.Function;
+
+/**
+ * Base for injecting native functions into Flabbergast as function-like templates
+ *
+ * @param <R> The return type of the function-like template
+ */
+public abstract class BaseFunctionInterop<R> extends AssistedFuture {
+  private final Function<R, Any> packer;
   protected final Frame self;
 
   public BaseFunctionInterop(
-      TaskMaster task_master,
-      SourceReference source_reference,
+      Function<R, Any> packer,
+      TaskMaster taskMaster,
+      SourceReference sourceReference,
       Context context,
-      Frame self,
-      Frame container) {
-    super(task_master, source_reference, context);
+      Frame self) {
+    super(taskMaster, sourceReference, context);
     this.self = self;
-    this.container = container;
+    this.packer = packer;
   }
 
+  /**
+   * Compute the value to be returned to the calling Flabbergast code
+   *
+   * @throws Exception Any exception thrown will be caught and the message will be presented in the
+   *     Flabbergast stack trace.
+   */
   protected abstract R computeResult() throws Exception;
 
   @Override
   protected final void resolve() {
-    result = correctOutput(this::computeResult);
+    complete(correctOutput(this::computeResult, packer));
   }
 }

@@ -1,0 +1,127 @@
+Introduction{{{Nano-pass framework for the Flabbergast compiler}}}
+
+unix_ar_lib : From lib:unix/ar
+
+compiler_tmpl : Template {
+	field_tmpl : Template { }
+	field_list_tmpl : Template field_tmpl { }
+	primitive_types : Template {
+		bool : Required
+		float : Required
+		int : Required
+		str : Required
+	}
+	primitive_type : primitive_types {}
+	primitive_field : For type : primitive_type, type_name : Name Select type_name : Template field_tmpl { type : Now type }
+	list_field : For type : primitive_type, type_name : Name Select type_name : Template field_list_tmpl { type : Now type }
+	{{{A complete grammar for a language.}}}
+	grammar_tmpl : Template {
+		grammar_name : Used
+		{{{The template of templates based on \{group_tmpl} that define the AST groups that make up the language. These would be things like statements, expressions, functions.}}}
+		syntax_groups : Template {}
+		{{{A part of syntax in the language. All items in the same syntax group should be interchangeable (ignoring precedence).}}}
+		group_tmpl : Template {
+			{{{The name of this syntax group.}}}
+			group_name : Used
+			{{{Template of templates that are common to all the elements in this group.}}}
+			fields : Template {}
+			{{{A template of templates based on \{element_tmpl} that define each of the AST nodes that make up this group.}}}
+			syntax_elements : Template {}
+			{{{A single syntax in this group.}}}
+			syntax_tmpl : Template {
+				{{{The name of this syntax element.}}}
+				element_name : Used
+				{{{Template of templates that are common to all the elements in this group.}}}
+				fields : Template {}
+				field : For field : fields {}, field_name : Name Select field_name : field { common : False }
+			}
+			element : syntax_element {}
+			field : For field : fields {}, field_name : Name Select field_name : field { common : True }
+			as_field : Template field_tmpl { }
+			as_field_list : Template field_list_tmpl { }
+		}
+		{{{Template of templates that are common to all the elements in this grammar.}}}
+		fields : Template {}
+		field : For field : fields {}, field_name : Name Select field_name : field {}
+		syntax_group : For group : syntax_groups {}, group_name : Name Select group_name : group {}
+	}
+
+	{{{The initial grammar consumed by the compiler.}}}
+	initial_grammar : grammar_tmpl
+
+	{{{A mechanism to transform one grammar into another.}}}
+	pass_tmpl : Template {
+		{{{The name of this transformation (and the resulting grammar's name).}}}
+		pass_name : Used
+		{{{A template derived from \{grammar_tmpl} with the source language to consume.}}}
+		input_grammar : Required
+		{{{The overrides necessary to the input grammar to complete the transformation. This defines the output grammar.}}}
+		grammar_changes : Template input_grammar {
+			grammar_name : Now pass_name & "Grammar"
+		}
+		{{{A frame of frames for each syntax group and element in the input grammar to determine how it will be transformed to the output grammar. If any element is omitted, a catamorphism is assumed.}}}
+		rules : Required
+		output_grammar : grammar_changes {}
+		{{{A base template that will be amended instantiated for every emission of a new element in the output grammar.}}}
+		emit_tmpl : Template {}
+		{{{All the output templates to emit elements in the output grammar.}}}
+		emit : For group : output_grammar.syntax_group, group_name : Name
+			Select group_name : For syntax_element : group.element, element_name : Name Select element_name : Template emit_tmpl {
+				target_element : Now syntax_element
+			}
+	}
+
+	{{{List of pass templates that will transform the input grammar to output grammar.}}}
+	passes : Required
+
+	pass : For p : passes {}, pass_number : Ordinal Accumulate { o : p { input_grammar : x.g }  g : o.grammar_changes } With x : { g : initial_grammar } Select x.o
+}
+
+{{{Render a \{compiler_tmpl} into a Java program.}}}
+compile_to_java : Function(base) base {
+	field_tmpl +: {
+		native_type : type.primitive
+		declaration : "\(native_type Enforce Str) \(field_name Enforce Str)"
+	}
+	field_list_tmpl +: {
+		native_type : type.boxed
+		declaration : "List<\(native_type Enforce Str)>  \(field_name Enforce Str)"
+	}
+	primitive_types +: {
+		bool : { primitive : "boolean"  boxed : "Boolean" }
+		float : { primitive : "double"  boxed : "Double" }
+		int : { primitive : "long"  boxed : "Long" }
+		str : { primitive : "String"  boxed : "String" }
+	}
+	grammar_tmpl +: {
+		group_tmpl +: {
+			class_name : "\(grammar_name Enforce Str)$\(group_name Enforce Str)"
+			syntax_tmpl +: {
+				value : "\tvoid \(element_name Enforce Str)(\(For f : field Reduce acc & ", " & f.declaration With acc : common_field_params));\n"
+			}
+			as_field +: {
+				native_type : Now "Consumer<\(class_name Enforce Str)>"
+			}
+			as_field_list +: {
+				native_type : Now "List<Consumer<\(class_name Enforce Str)>"
+			}
+			value : unix_ar_lib.file_tmpl {
+				file_name : "\(class_name Enforce Str).java"
+				contents : (For e : element Reduce acc & e.value With acc : "package flabbergast;\ninterface \(grammar_name)$\(group_name) {") & "}"
+			}
+		}
+		common_field_params : For f : field Reduce acc & ", " & f.declaration With acc : "SourceReference _source_reference"
+		value : For group : syntax_group Reduce acc & group.value With acc : ""
+	}
+
+	pass_tmpl +: {
+		rules : Required
+		output_grammar : grammar_changes {}
+		emit_tmpl : Template {}
+		emit : For group : output_grammar.syntax_group, group_name : Name
+			Select group_name : For syntax_element : group.element, element_name : Name Select element_name : Template emit_tmpl {
+				target_element : Now syntax_element
+			}
+	}
+
+}

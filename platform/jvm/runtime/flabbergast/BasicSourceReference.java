@@ -1,8 +1,7 @@
 package flabbergast;
 
-import java.io.IOException;
-import java.io.Writer;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * Description of the current Flabbergast stack.
@@ -11,29 +10,28 @@ import java.util.Set;
  * object records it such that it can be presented to the user when needed.
  */
 public class BasicSourceReference extends SourceReference {
-  protected SourceReference caller;
-  protected int end_column;
-  protected int end_line;
-  protected String file_name;
-  protected String message;
-  protected int start_column;
-
-  protected int start_line;
+  protected final SourceReference caller;
+  private final int endColumn;
+  private final int endLine;
+  private final String fileName;
+  private final String message;
+  private final int startColumn;
+  private final int startLine;
 
   public BasicSourceReference(
       String message,
       String filename,
-      int start_line,
-      int start_column,
-      int end_line,
-      int end_column,
+      int startLine,
+      int startColumn,
+      int endLine,
+      int endColumn,
       SourceReference caller) {
     this.message = message;
-    this.file_name = filename;
-    this.start_line = start_line;
-    this.start_column = start_column;
-    this.end_line = end_line;
-    this.end_column = end_column;
+    fileName = filename;
+    this.startLine = startLine;
+    this.startColumn = startColumn;
+    this.endLine = endLine;
+    this.endColumn = endColumn;
     this.caller = caller;
   }
 
@@ -42,15 +40,15 @@ public class BasicSourceReference extends SourceReference {
   }
 
   public int getEndColumn() {
-    return end_column;
+    return endColumn;
   }
 
   public int getEndLine() {
-    return end_line;
+    return endLine;
   }
 
   public String getFileName() {
-    return file_name;
+    return fileName;
   }
 
   public String getMessage() {
@@ -58,46 +56,46 @@ public class BasicSourceReference extends SourceReference {
   }
 
   public int getStartColumn() {
-    return start_column;
+    return startColumn;
   }
 
   public int getStartLine() {
-    return start_line;
+    return startLine;
   }
 
   @Override
-  public void write(Writer writer, String prefix, Set<SourceReference> seen) throws IOException {
-    writer.write(prefix);
-    writer.write(caller == null ? "└ " : "├ ");
+  public void write(Consumer<String> writer, String prefix, Set<SourceReference> seen) {
+    writer.accept(prefix);
+    writer.accept(caller == null ? "└ " : "├ ");
     writeMessage(writer);
-    boolean before = seen.contains(this);
+    final boolean before = seen.contains(this);
     if (before) {
-      writer.write(" (previously mentioned)");
+      writer.accept(" (previously mentioned)");
     } else {
       seen.add(this);
     }
-    writer.write("\n");
+    writer.accept("\n");
     if (caller != null) {
       if (before) {
-        writer.write(prefix);
-        writer.write("┊\n");
+        writer.accept(prefix);
+        writer.accept("┊\n");
       } else {
         caller.write(writer, prefix, seen);
       }
     }
   }
 
-  protected void writeMessage(Writer writer) throws IOException {
-    writer.write(file_name);
-    writer.write(": ");
-    writer.write(Integer.toString(start_line));
-    writer.write(":");
-    writer.write(Integer.toString(start_column));
-    writer.write("-");
-    writer.write(Integer.toString(end_line));
-    writer.write(":");
-    writer.write(Integer.toString(end_column));
-    writer.write(": ");
-    writer.write(message);
+  protected void writeMessage(Consumer<String> writer) {
+    writer.accept(fileName);
+    writer.accept(": ");
+    writer.accept(Integer.toString(startLine));
+    writer.accept(":");
+    writer.accept(Integer.toString(startColumn));
+    writer.accept("-");
+    writer.accept(Integer.toString(endLine));
+    writer.accept(":");
+    writer.accept(Integer.toString(endColumn));
+    writer.accept(": ");
+    writer.accept(message);
   }
 }

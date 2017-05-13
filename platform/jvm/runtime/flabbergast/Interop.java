@@ -1,251 +1,300 @@
 package flabbergast;
 
-import flabbergast.TaskMaster.LibraryFailure;
+import flabbergast.AssistedFuture.Matcher;
+import java.net.URI;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Function;
+import org.kohsuke.MetaInfServices;
 
+/**
+ * Inject native functions and data into Flabbergast as function-like templates and boxed values,
+ * respectively
+ *
+ * <p>To make use of this class, create a class implementing {@link UriService} annotated with
+ * {@link MetaInfServices} that returns a derivative of this class. In the constructor, use the
+ * methods in this class to bind native data. Every bound value needs a URI associated with it.
+ * Create a library in Flabbergast that pulls in these values using “From interop:x” where “x” is
+ * the URI used.
+ */
 public abstract class Interop implements UriHandler {
-  private static final Frame NOTHING =
-      new FixedFrame("interop", new NativeSourceReference("interop"));
-
-  private Map<String, Future> bindings = new HashMap<>();
-
-  protected <T, R> void add(
-      Class<R> returnClass, Class<T> clazz, String name, Func<T, R> func, String parameter) {
-    add(returnClass, name, func, clazz, false, parameter);
+  protected interface LookupInstantiator {
+    Future lookup(
+        TaskMaster taskMaster, SourceReference sourceReference, Context context, String[] names);
   }
 
+  private static final Frame NOTHING = Frame.create("interop", "interop");
+
+  private final Map<String, Future> bindings = new HashMap<>();
+
+  /**
+   * Bind a function with one argument to a function-like template
+   *
+   * @param packer a function to box the result. Probably a method reference of {@link Any#of}.
+   * @param name The URI to bind to. (i.e., “x/y” for “From interop:x/y”)
+   * @param func The function to be called.
+   * @param matcher The {@link Matcher} to unbox the Flabbergast value
+   * @param parameter The Flabbergast name to lookup as the parameter
+   */
   protected <T, R> void add(
-      Class<R> returnClass,
-      String name,
-      Func<T, R> func,
-      Class<T> clazz,
-      boolean nullable,
-      String parameter) {
+      Function<R, Any> packer, String name, Func<T, R> func, Matcher<T> matcher, String parameter) {
     add(
         name,
-        (task_master, source_ref, context, self, container) ->
+        (taskMaster, sourceReference, context, self) ->
             new FunctionInterop<>(
-                returnClass,
-                func,
-                clazz,
-                nullable,
-                parameter,
-                task_master,
-                source_ref,
-                context,
-                self,
-                container));
+                packer, func, matcher, parameter, taskMaster, sourceReference, context, self));
   }
 
+  /**
+   * Bind a function with two arguments to a function-like template
+   *
+   * @param packer a function to box the result. Probably a method reference of {@link Any#of}.
+   * @param name The URI to bind to. (i.e., “x/y” for “From interop:x/y”)
+   * @param func The function to be called.
+   * @param matcher1 The {@link Matcher} to unbox the Flabbergast value for the first parameter
+   * @param parameter1 The Flabbergast name to lookup as the first parameter
+   * @param matcher2 The {@link Matcher} to unbox the Flabbergast value as the second parameter
+   * @param parameter2 The Flabbergast name to lookup as the second parameter
+   */
   protected <T1, T2, R> void add(
-      Class<R> returnClass,
+      Function<R, Any> packer,
       String name,
       Func2<T1, T2, R> func,
-      Class<T1> clazz1,
-      boolean parameter1Nullable,
+      Matcher<T1> matcher1,
       String parameter1,
-      Class<T2> clazz2,
-      boolean parameter2Nullable,
+      Matcher<T2> matcher2,
       String parameter2) {
     add(
         name,
-        (task_master, source_ref, context, self, container) ->
+        (taskMaster, sourceReference, context, self) ->
             new FunctionInterop2<>(
-                returnClass,
+                packer,
                 func,
-                clazz1,
-                parameter1Nullable,
+                matcher1,
                 parameter1,
-                clazz2,
-                parameter2Nullable,
+                matcher2,
                 parameter2,
-                task_master,
-                source_ref,
+                taskMaster,
+                sourceReference,
                 context,
-                self,
-                container));
+                self));
   }
 
-  protected <T1, T2, R> void add(
-      Class<R> returnClass,
-      String name,
-      Func2<T1, T2, R> func,
-      Class<T1> clazz1,
-      String parameter1,
-      Class<T2> clazz2,
-      String parameter2) {
-    add(returnClass, name, func, clazz1, false, parameter1, clazz2, false, parameter2);
-  }
-
-  protected void add(String name, ComputeValue compute) {
-    Template tmpl = new Template(NOTHING.getSourceReference(), null, NOTHING);
+  /**
+   * Bind a complex function-like template
+   *
+   * <p>Since there is a limit to the binding capabilities of the methods provided in this class, a
+   * more complex function can be made by extending {@link BaseFunctionInterop}, {@link
+   * BaseMapFunctionInterop}, or {@link AssistedFuture} to perform the necessary computation. This
+   * method will bind computation as the “value” attribute of a function-like template.
+   *
+   * @param name The URI to bind to. (i.e., “x/y” for “From interop:x/y”)
+   * @param compute usually, a reference to the constructor of the appropriate subclass of {@link
+   *     BaseFunctionInterop}, {@link BaseMapFunctionInterop}, or {@link AssistedFuture}
+   */
+  protected void add(String name, Definition compute) {
+    final Template tmpl = new Template(NOTHING.getSourceReference(), null, NOTHING);
     tmpl.set("value", compute);
-    bindings.put(name, new Precomputation(tmpl));
+    bindings.put(name, Any.of(tmpl).future());
   }
-
+  /**
+   * Bind a frame
+   *
+   * @param name The URI to bind to. (i.e., “x/y” for “From interop:x/y”)
+   * @param frame a frame, constructed using {@link Frame#create(String, String,
+   *     flabbergast.Frame.Builder...)} or {@link MarshalledFrame#create(String, String, Object,
+   *     java.util.stream.Stream)}
+   */
   protected void add(String name, Frame frame) {
-    bindings.put(name, new Precomputation(frame));
+    bindings.put(name, Any.of(frame).future());
   }
 
-  protected <T, R> void addMap(Class<R> returnClass, Class<T> clazz, String name, Func<T, R> func) {
+  /**
+   * Bind a new lookup handler.
+   *
+   * @param name The URI to bind to. (i.e., “x/y” for “From interop:x/y”)
+   * @param handler The lookup handler to bind.
+   */
+  protected void addHandler(String name, LookupInstantiator handler) {
+    bindings.put(
+        name,
+        Any.of(
+                new LookupHandler() {
+
+                  @Override
+                  public String description() {
+                    return name;
+                  }
+
+                  @Override
+                  public Future lookup(
+                      TaskMaster taskMaster,
+                      SourceReference sourceReference,
+                      Context context,
+                      String[] names) {
+                    return handler.lookup(taskMaster, sourceReference, context, names);
+                  }
+                })
+            .future());
+  }
+
+  /**
+   * Bind a function-like template that does a “map” operation over variadic “args”
+   *
+   * @param packer a function to box the result. Probably a method reference of {@link Any#of}.
+   * @param name The URI to bind to. (i.e., “x/y” for “From interop:x/y”)
+   * @param func The function to be called.
+   * @param matcher The {@link Matcher} to unbox the Flabbergast value for each of the values in
+   *     “args”
+   */
+  protected <T, R> void addMap(
+      Function<R, Any> packer, Matcher<T> matcher, String name, Func<T, R> func) {
     add(
         name,
-        (task_master, source_ref, context, self, container) ->
+        (taskMaster, sourceReference, context, self) ->
             new MapFunctionInterop<>(
-                returnClass, clazz, func, task_master, source_ref, context, self, container));
+                packer, matcher, func, taskMaster, sourceReference, context, self));
   }
 
+  /**
+   * Bind a function-like template that does a “map” operation over variadic “args” with an
+   * additional argument that does not vary
+   *
+   * @param packer a function to box the result. Probably a method reference of {@link Any#of}.
+   * @param name The URI to bind to. (i.e., “x/y” for “From interop:x/y”)
+   * @param func The function to be called.
+   * @param matcher The {@link Matcher} to unbox the Flabbergast value for each of the values in
+   *     “args”
+   * @param parameterMatcher The {@link Matcher} to unbox the Flabbergast value for the fixed
+   *     parameter
+   * @param parameter The Flabbergast name to lookup as the fixed parameter
+   */
   protected <T1, T2, R> void addMap(
-      Class<R> returnClass,
-      Class<T1> clazz,
+      Function<R, Any> packer,
+      Matcher<T1> matcher,
       String name,
       Func2<T1, T2, R> func,
-      Class<T2> parameterClass,
-      boolean parameterNullable,
+      Matcher<T2> parameterMatcher,
       String parameter) {
     add(
         name,
-        (task_master, source_ref, context, self, container) ->
+        (taskMaster, sourceReference, context, self) ->
             new MapFunctionInterop2<>(
-                returnClass,
-                clazz,
+                packer,
+                matcher,
                 func,
-                parameterClass,
-                parameterNullable,
+                parameterMatcher,
                 parameter,
-                task_master,
-                source_ref,
+                taskMaster,
+                sourceReference,
                 context,
-                self,
-                container));
+                self));
   }
 
-  protected <T1, T2, R> void addMap(
-      Class<R> returnClass,
-      Class<T1> clazz,
-      String name,
-      Func2<T1, T2, R> func,
-      Class<T2> parameterClass,
-      String parameter) {
-    addMap(returnClass, clazz, name, func, parameterClass, false, parameter);
-  }
-
+  /**
+   * Bind a function-like template that does a “map” operation over variadic “args” with two
+   * additional arguments that do not vary
+   *
+   * @param packer a function to box the result. Probably a method reference of {@link Any#of}.
+   * @param name The URI to bind to. (i.e., “x/y” for “From interop:x/y”)
+   * @param func The function to be called.
+   * @param matcher The {@link Matcher} to unbox the Flabbergast value for each of the values in
+   *     “args”
+   * @param parameter1Matcher The {@link Matcher} to unbox the Flabbergast value for the first fixed
+   *     parameter
+   * @param parameter1 The Flabbergast name to lookup as the first fixed parameter
+   * @param parameter2Matcher The {@link Matcher} to unbox the Flabbergast value for the second
+   *     fixed parameter
+   * @param parameter2 The Flabbergast name to lookup as the second fixed parameter
+   */
   protected <T1, T2, T3, R> void addMap(
-      Class<R> returnClass,
-      Class<T1> clazz,
+      Function<R, Any> packer,
+      Matcher<T1> matcher,
       String name,
       Func3<T1, T2, T3, R> func,
-      Class<T2> parameter1Class,
-      boolean parameter1Nullable,
+      Matcher<T2> parameter1Matcher,
       String parameter1,
-      Class<T3> parameter2Class,
-      boolean parameter2Nullable,
+      Matcher<T3> parameter2Matcher,
       String parameter2) {
     add(
         name,
-        (task_master, source_ref, context, self, container) ->
+        (taskMaster, sourceReference, context, self) ->
             new MapFunctionInterop3<>(
-                returnClass,
-                clazz,
+                packer,
+                matcher,
                 func,
-                parameter1Class,
-                parameter1Nullable,
+                parameter1Matcher,
                 parameter1,
-                parameter2Class,
-                parameter2Nullable,
+                parameter2Matcher,
                 parameter2,
-                task_master,
-                source_ref,
+                taskMaster,
+                sourceReference,
                 context,
-                self,
-                container));
+                self));
   }
 
-  protected <T1, T2, T3, R> void addMap(
-      Class<R> returnClass,
-      Class<T1> clazz,
-      String name,
-      Func3<T1, T2, T3, R> func,
-      Class<T2> parameter1Class,
-      String parameter1,
-      Class<T3> parameter2Class,
-      String parameter2) {
-    addMap(
-        returnClass,
-        clazz,
-        name,
-        func,
-        parameter1Class,
-        false,
-        parameter1,
-        parameter2Class,
-        false,
-        parameter2);
-  }
-
+  /**
+   * Bind a function-like template that does a “map” operation over variadic “args” with three
+   * additional arguments that do not vary
+   *
+   * @param packer a function to box the result. Probably a method reference of {@link Any#of}.
+   * @param name The URI to bind to. (i.e., “x/y” for “From interop:x/y”)
+   * @param func The function to be called.
+   * @param matcher The {@link Matcher} to unbox the Flabbergast value for each of the values in
+   *     “args”
+   * @param parameter1Matcher The {@link Matcher} to unbox the Flabbergast value for the first fixed
+   *     parameter
+   * @param parameter1 The Flabbergast name to lookup as the first fixed parameter
+   * @param parameter2Matcher The {@link Matcher} to unbox the Flabbergast value for the second
+   *     fixed parameter
+   * @param parameter2 The Flabbergast name to lookup as the second fixed parameter
+   * @param parameter3Matcher The {@link Matcher} to unbox the Flabbergast value for the third fixed
+   *     parameter
+   * @param parameter3 The Flabbergast name to lookup as the third fixed parameter
+   */
   protected <T1, T2, T3, T4, R> void addMap(
-      Class<R> returnClass,
-      Class<T1> clazz,
+      Function<R, Any> packer,
+      Matcher<T1> matcher,
       String name,
       Func4<T1, T2, T3, T4, R> func,
-      Class<T2> parameter1Class,
-      boolean parameter1Nullable,
+      Matcher<T2> parameter1Matcher,
       String parameter1,
-      Class<T3> parameter2Class,
-      boolean parameter2Nullable,
+      Matcher<T3> parameter2Matcher,
       String parameter2,
-      Class<T4> parameter3Class,
-      boolean parameter3Nullable,
+      Matcher<T4> parameter3Matcher,
       String parameter3) {
     add(
         name,
-        (task_master, source_ref, context, self, container) ->
+        (taskMaster, sourceReference, context, self) ->
             new MapFunctionInterop4<>(
-                returnClass,
-                clazz,
+                packer,
+                matcher,
                 func,
-                parameter1Class,
-                parameter1Nullable,
+                parameter1Matcher,
                 parameter1,
-                parameter2Class,
-                parameter2Nullable,
+                parameter2Matcher,
                 parameter2,
-                parameter3Class,
-                parameter3Nullable,
+                parameter3Matcher,
                 parameter3,
-                task_master,
-                source_ref,
+                taskMaster,
+                sourceReference,
                 context,
-                self,
-                container));
+                self));
   }
 
-  protected <T1, T2, T3, T4, R> void addMap(
-      Class<R> returnClass,
-      Class<T1> clazz,
-      String name,
-      Func4<T1, T2, T3, T4, R> func,
-      Class<T2> parameter1Class,
-      String parameter1,
-      Class<T3> parameter2Class,
-      String parameter2,
-      Class<T4> parameter3Class,
-      String parameter3) {
-    addMap(
-        returnClass,
-        clazz,
+  /**
+   * Bind a function that causes a not-implemented error when expanded.
+   *
+   * <p>This is used for adding bindings in the standard library that are not availble on all
+   * platforms.
+   *
+   * @param name the URI to bind to.
+   */
+  protected void addMissing(String name) {
+    add(
         name,
-        func,
-        parameter1Class,
-        false,
-        parameter1,
-        parameter2Class,
-        false,
-        parameter2,
-        parameter3Class,
-        false,
-        parameter3);
+        FailureFuture.create(
+            String.format("This platform has no implementation of “interop:%s”.", name)));
   }
 
   @Override
@@ -259,12 +308,10 @@ public abstract class Interop implements UriHandler {
   }
 
   @Override
-  public Future resolveUri(TaskMaster master, String uri, Ptr<LibraryFailure> reason) {
-    if (!uri.startsWith("interop:")) return null;
-    if (bindings.containsKey(uri.substring(8))) {
-      reason.set(null);
-      return bindings.get(uri.substring(8));
-    }
-    return null;
+  public final Maybe<Future> resolveUri(TaskMaster master, URI uri) {
+    return Maybe.of(uri)
+        .filter(x -> x.getScheme().equals("interop"))
+        .map(URI::getSchemeSpecificPart)
+        .map(bindings::get);
   }
 }

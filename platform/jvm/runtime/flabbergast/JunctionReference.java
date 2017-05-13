@@ -1,8 +1,7 @@
 package flabbergast;
 
-import java.io.IOException;
-import java.io.Writer;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * A stack element that bifurcates.
@@ -11,18 +10,18 @@ import java.util.Set;
  * ancestor.
  */
 public class JunctionReference extends BasicSourceReference {
-  private SourceReference junction;
+  private final SourceReference junction;
 
   public JunctionReference(
       String message,
       String filename,
-      int start_line,
-      int start_column,
-      int end_line,
-      int end_column,
+      int startLine,
+      int startColumn,
+      int endLine,
+      int endColumn,
       SourceReference caller,
       SourceReference junction) {
-    super(message, filename, start_line, start_column, end_line, end_column, caller);
+    super(message, filename, startLine, startColumn, endLine, endColumn, caller);
     this.junction = junction;
   }
 
@@ -32,22 +31,22 @@ public class JunctionReference extends BasicSourceReference {
   }
 
   @Override
-  public void write(Writer writer, String prefix, Set<SourceReference> seen) throws IOException {
-    writer.write(prefix);
-    writer.write(this.caller == null ? "└─┬ " : "├─┬ ");
+  public void write(Consumer<String> writer, String prefix, Set<SourceReference> seen) {
+    writer.accept(prefix);
+    writer.accept(caller == null ? "└─┬ " : "├─┬ ");
     writeMessage(writer);
-    boolean before = seen.contains(this);
+    final boolean before = seen.contains(this);
     if (before) {
-      writer.write(" (previously mentioned)");
+      writer.accept(" (previously mentioned)");
     } else {
       seen.add(this);
     }
-    writer.write("\n");
+    writer.accept("\n");
 
     if (before) {
-      writer.write(prefix);
-      writer.write(caller == null ? "  " : "┊ ");
-      writer.write("┊\n");
+      writer.accept(prefix);
+      writer.accept(caller == null ? "  " : "┊ ");
+      writer.accept("┊\n");
     } else {
       junction.write(writer, prefix + (caller == null ? "  " : "│ "), seen);
       if (caller != null) {

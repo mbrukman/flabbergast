@@ -1,12 +1,18 @@
 package flabbergast;
 
-import flabbergast.TaskMaster.LibraryFailure;
-import java.net.URLDecoder;
+import java.net.URI;
+import java.util.Set;
+import org.kohsuke.MetaInfServices;
 
-public class SettingsHandler implements UriHandler {
-  public static final SettingsHandler INSTANCE = new SettingsHandler();
+@MetaInfServices(UriService.class)
+class SettingsHandler implements UriHandler, UriService {
 
   private SettingsHandler() {}
+
+  @Override
+  public UriHandler create(ResourcePathFinder finder, Set<LoadRule> flags) {
+    return flags.contains(LoadRule.SANDBOXED) ? null : this;
+  }
 
   @Override
   public int getPriority() {
@@ -19,14 +25,13 @@ public class SettingsHandler implements UriHandler {
   }
 
   @Override
-  public Future resolveUri(TaskMaster task_master, String uri, Ptr<LibraryFailure> reason) {
-
-    if (!uri.startsWith("settings:")) return null;
-    try {
-      String value = System.getProperty(URLDecoder.decode(uri.substring(9), "UTF-8"));
-      return new Precomputation(value == null ? Unit.NULL : new SimpleStringish(value));
-    } catch (Exception e) {
-      return new FailureFuture(task_master, new NativeSourceReference(uri), e.getMessage());
+  public Maybe<Future> resolveUri(TaskMaster taskMaster, URI uri) {
+    if (!uri.getScheme().equals("settings")) {
+      return null;
     }
+    return Maybe.of(uri.getSchemeSpecificPart())
+        .map(System::getProperty)
+        .map(Any::of)
+        .map(Any::future);
   }
 }

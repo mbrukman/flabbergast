@@ -1,8 +1,8 @@
 package flabbergast;
 
-import java.util.EnumSet;
+import java.util.Set;
 
 public interface UriService {
 
-  UriHandler create(ResourcePathFinder finder, EnumSet<LoadRule> flags);
+  UriHandler create(ResourcePathFinder finder, Set<LoadRule> flags);
 }

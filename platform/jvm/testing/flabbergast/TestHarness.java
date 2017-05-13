@@ -1,120 +1,50 @@
 package flabbergast;
 
-import java.io.File;
-import java.io.FilenameFilter;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.stream.Stream;
 
 public class TestHarness {
-  private static final class OnlySourceFiles implements FilenameFilter {
-    @Override
-    public boolean accept(File dir, String name) {
-      return name.endsWith(".o_0");
-    }
-  }
+  public static boolean doTest(Path file, boolean success, Compiler compiler) {
+    TaskMaster taskMaster =
+        new TaskMaster() {
 
-  private static File[] alwaysIterable(File[] collection) {
-    if (collection == null) {
-      return new File[0];
-    }
-    return collection;
-  }
-
-  private static File combine(String... parts) {
-    StringBuilder buffer = new StringBuilder();
-    for (int it = 0; it < parts.length; it++) {
-      if (it > 0) {
-        buffer.append(File.separator);
-      }
-      buffer.append(parts[it]);
-    }
-    return new File(buffer.toString());
-  }
-
-  public static boolean doTests(File root, String type, Ptr<Integer> id) throws IOException {
-    boolean all_succeeded = true;
-    if (!root.exists()) {
-      System.err.printf("Skipping non-existent directory: %s\n", root);
-      return all_succeeded;
-    }
-    for (File file : alwaysIterable(new File(root, "malformed").listFiles(new OnlySourceFiles()))) {
-      DirtyCollector collector = new DirtyCollector();
-      DynamicCompiler compiler = new DynamicCompiler(collector);
-
-      Parser parser = Parser.open(file.getAbsolutePath());
-      int test_id = id.get();
-      id.set(test_id + 1);
-      try {
-        parser.parseFile(collector, compiler.getCompilationUnit(), "Test" + test_id);
-      } catch (Exception e) {
-      }
-      System.err.printf(
-          "%s %s %s %s\n", collector.isParseDirty() ? "----" : "FAIL", "M", type, file.getName());
-      all_succeeded &= collector.isParseDirty();
-    }
-    ResourcePathFinder resource_finder = new ResourcePathFinder();
-    TaskMaster task_master = new TestTaskMaster();
-    task_master.addUriHandler(BuiltInLibraries.INSTANCE);
-    task_master.addUriHandler(StandardInterop.INSTANCE);
-    for (File file : alwaysIterable(new File(root, "errors").listFiles(new OnlySourceFiles()))) {
-      boolean success;
-      try {
-        DirtyCollector collector = new DirtyCollector();
-        DynamicCompiler compiler = new DynamicCompiler(collector);
-        compiler.setFinder(resource_finder);
-        Parser parser = Parser.open(file.getAbsolutePath());
-        int test_id = id.get();
-        id.set(test_id + 1);
-        Class<? extends Future> test_type =
-            parser.parseFile(collector, compiler.getCompilationUnit(), "Test" + test_id);
-        success = collector.isAnalyseDirty();
-        if (!success && test_type != null) {
-          CheckResult tester = new CheckResult(task_master, test_type);
-          tester.slot();
-          task_master.run();
-          success = !tester.getSuccess();
-        }
-      } catch (Exception e) {
-        success = false;
-      }
-      System.err.printf("%s %s %s %s\n", success ? "----" : "FAIL", "E", type, file.getName());
-      all_succeeded &= success;
-    }
-    for (File file : alwaysIterable(new File(root, "working").listFiles(new OnlySourceFiles()))) {
-      boolean success;
-      try {
-        DirtyCollector collector = new DirtyCollector();
-        DynamicCompiler compiler = new DynamicCompiler(collector);
-        Parser parser = Parser.open(file.getAbsolutePath());
-        int test_id = id.get();
-        id.set(test_id + 1);
-        Class<? extends Future> test_type =
-            parser.parseFile(collector, compiler.getCompilationUnit(), "Test" + test_id);
-        success = !collector.isAnalyseDirty() && !collector.isParseDirty();
-        if (success && test_type != null) {
-          CheckResult tester = new CheckResult(task_master, test_type);
-          tester.slot();
-          task_master.run();
-          success = tester.getSuccess();
-        }
-      } catch (Exception e) {
-        success = false;
-      }
-      System.err.printf("%s %s %s %s\n", success ? "----" : "FAIL", "W", type, file.getName());
-      all_succeeded &= success;
-    }
-    return all_succeeded;
+          @Override
+          public void reportOtherError(SourceReference reference, String message) {}
+        };
+    CheckResult check = new CheckResult();
+    compiler
+        .compile(file)
+        .collect(new Instantiator(check, taskMaster, result -> result.accept(check)));
+    taskMaster.run();
+    boolean pass = check.getSuccess() == success;
+    System.err.printf(
+        "%s %s %s\n", pass ? "----" : "FAIL", success ? "W" : "E", file.getFileName().toString());
+    return pass;
   }
 
   public static void main(String[] args) {
-    try {
-      Ptr<Integer> id = new Ptr<Integer>(0);
-      boolean success = true;
-      success &= doTests(combine("..", "..", "tests"), "*", id);
-      success &= doTests(combine("tests"), "I", id);
-      System.exit(success ? 0 : 1);
-    } catch (Exception e) {
-      e.printStackTrace();
-      System.exit(1);
-    }
+    Compiler compiler = Compiler.find(SourceFormat.FLABBERGAST, TargetFormat.JVM).get();
+    boolean success =
+        Stream.of(Paths.get("test"), Paths.get("..", "..", "tests"))
+            .flatMap(
+                path ->
+                    Stream.of(
+                        new Pair<>(path.resolve("errors"), false),
+                        new Pair<>(path.resolve("working"), false)))
+            .filter(pair -> Files.exists(pair.getKey()))
+            .flatMap(
+                pair -> {
+                  try (Stream<Path> files = Files.walk(pair.getKey())) {
+                    return files.map(file -> new Pair<>(file, pair.getValue()));
+                  } catch (IOException e) {
+                    return Stream.empty();
+                  }
+                })
+            .filter(pair -> pair.getKey().endsWith(".o_0"))
+            .allMatch(pair -> doTest(pair.getKey(), pair.getValue(), compiler));
+    System.exit(success ? 0 : 1);
   }
 }

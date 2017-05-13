@@ -3,55 +3,83 @@ package flabbergast;
 import flabbergast.Escape.Range;
 import flabbergast.Escape.RangeAction;
 import flabbergast.EscapeBuilder.Transformation;
-import flabbergast.ReflectedFrame.Transform;
+import flabbergast.MarshalledFrame.Transform;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.Map;
+import java.util.stream.Stream;
 
-public class EscapeRangeBuilder extends BaseReflectedInterop<Transformation> {
+class EscapeRangeBuilder extends BaseReflectedInterop<Transformation> {
+
+  private static final Matcher<RangeAction> RANGE_ACTION_MATCHER =
+      (consumer, error) ->
+          new MatchAcceptor<RangeAction>(
+              "Frame from lib:utils str_transform range_tmpl mode or Bool or Float or Int or Str",
+              false,
+              consumer,
+              error) {
+            @Override
+            public void accept(boolean value) {
+              makeAction(value ? "True" : "False");
+            }
+
+            @Override
+            public void accept(double value) {
+              makeAction(Double.toString(value));
+            }
+
+            @Override
+            public void accept(Frame value) {
+              if (value instanceof MarshalledFrame) {
+                final Object backing = ((MarshalledFrame) value).getBacking();
+                if (backing instanceof RangeAction) {
+                  consumer.accept((RangeAction) backing);
+                  return;
+                }
+              }
+              fail("Frame");
+            }
+
+            @Override
+            public void accept(long value) {
+              makeAction(Long.toString(value));
+            }
+
+            @Override
+            public void accept(Stringish value) {
+              makeAction(value.toString());
+            }
+
+            private void makeAction(String value) {
+              consumer.accept(codepoint -> value);
+            }
+          };
   private List<RangeAction> actions;
-  private String end;
-  private String start;
+  private int end;
+  private int start;
 
-  public EscapeRangeBuilder(
-      TaskMaster task_master,
-      SourceReference source_reference,
-      Context context,
-      Frame self,
-      Frame container) {
-    super(task_master, source_reference, context, self, container);
+  EscapeRangeBuilder(
+      TaskMaster taskMaster, SourceReference sourceReference, Context context, Frame self) {
+    super(taskMaster, sourceReference, context, self);
   }
 
   @Override
-  protected Transformation computeResult() throws Exception {
-    int start_codepoint = EscapeBuilder.stringToCodepoint(start);
-    int end_codepoint = EscapeBuilder.stringToCodepoint(end);
-    if (start_codepoint > end_codepoint) {
+  protected Transformation computeReflectedValue() {
+    if (start > end) {
       throw new IllegalArgumentException("Transformation range has start before end.");
     }
-    Range range = new Range(start_codepoint, end_codepoint, actions);
+    final Range range = new Range(start, end, actions);
     return builder -> builder.ranges.add(range);
   }
 
   @Override
-  protected Map<String, Transform<Transformation>> getAccessors() {
-    return Collections.emptyMap();
+  protected Stream<Transform<Transformation>> getTransforms() {
+    return Stream.empty();
   }
 
   @Override
   protected void setup() {
-    Sink<String> start_lookup = find(String.class, x -> start = x);
-    start_lookup.allowDefault(false, null);
-    start_lookup.lookup("start");
-    Sink<String> end_lookup = find(String.class, x -> end = x);
-    end_lookup.allowDefault(false, null);
-    end_lookup.lookup("end");
-    ListSink<RangeAction> actions_lookup =
-        findAll(RangeAction.class, x -> actions = new ArrayList<>(x.values()));
-    actions_lookup.allowDefault(false, "Frame is not one of the Unicode escapes known.");
-    actions_lookup.allow(
-        String.class, str -> (buffer, codepoint) -> buffer.append(str), false, null);
-    actions_lookup.lookup("replacement");
+    find(asCodepoint(), x -> start = x, "start");
+    find(asCodepoint(), x -> end = x, "end");
+    findAll(RANGE_ACTION_MATCHER, x -> actions = new ArrayList<>(x.values()), "replacement");
   }
 }

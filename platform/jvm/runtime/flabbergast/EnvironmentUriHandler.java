@@ -1,12 +1,19 @@
 package flabbergast;
 
-import flabbergast.TaskMaster.LibraryFailure;
+import java.net.URI;
+import java.util.Set;
 import java.util.regex.Pattern;
 
-public class EnvironmentUriHandler implements UriHandler {
-  public static final EnvironmentUriHandler INSTANCE = new EnvironmentUriHandler();
+class EnvironmentUriHandler implements UriHandler, UriService {
+  private static final Maybe.WhineyPredicate<String> VALID_ENV =
+      Maybe.makeWhiney(Pattern.compile("^[A-Z_][A-Z0-9_]*$").asPredicate());
 
   private EnvironmentUriHandler() {}
+
+  @Override
+  public UriHandler create(ResourcePathFinder finder, Set<LoadRule> flags) {
+    return flags.contains(LoadRule.SANDBOXED) ? null : this;
+  }
 
   @Override
   public int getPriority() {
@@ -19,17 +26,13 @@ public class EnvironmentUriHandler implements UriHandler {
   }
 
   @Override
-  public Future resolveUri(TaskMaster task_master, String uri, Ptr<LibraryFailure> reason) {
-    if (!uri.startsWith("env:")) {
-      reason.set(LibraryFailure.MISSING);
-      return null;
-    }
-    String name = uri.substring(4);
-    if (!Pattern.matches("[A-Z_][A-Z0-9_]*", name)) {
-      reason.set(LibraryFailure.BAD_NAME);
-      return null;
-    }
-    String content = System.getenv(name);
-    return new Precomputation(content == null ? (Object) Unit.NULL : new SimpleStringish(content));
+  public Maybe<Future> resolveUri(TaskMaster taskMaster, URI uri) {
+    return Maybe.of(uri)
+        .filter(x -> x.getScheme().equals("env"))
+        .map(URI::getSchemeSpecificPart)
+        .filter(VALID_ENV, "Environment variable does not follow POSIX naming.")
+        .map(System::getenv)
+        .map(Any::of)
+        .map(Any::future);
   }
 }

@@ -2,9 +2,37 @@ package flabbergast;
 
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
-import java.util.function.Consumer;
 
-public class CreateTime extends BaseFunctionInterop<ZonedDateTime> {
+class CreateTime extends BaseFunctionInterop<Frame> {
+  private static final Matcher<Integer> MONTH_MATCHER =
+      (consumer, error) ->
+          new MatchAcceptor<Integer>("Int or Frame from “months”", false, consumer, error) {
+            @Override
+            public void accept(Frame value) {
+              if (!value.get(
+                  "ordinal",
+                  new AcceptOrFail() {
+                    @Override
+                    public void accept(long value) {
+                      consumer.accept((int) value);
+                    }
+
+                    @Override
+                    protected final void fail(String type) {
+                      error.accept(
+                          "Frame with attribute “ordinal” of type Int",
+                          String.format("Frame with attribute “ordinal” of type %s", type));
+                    }
+                  })) {
+                fail("Frame");
+              }
+            }
+
+            @Override
+            public void accept(long value) {
+              consumer.accept((int) value);
+            }
+          };
   private long day;
   private long hour;
   private long millisecond;
@@ -12,52 +40,41 @@ public class CreateTime extends BaseFunctionInterop<ZonedDateTime> {
   private long month;
   private long second;
   private long year;
+
   private ZoneId zone;
 
-  public CreateTime(
-      TaskMaster task_master,
-      SourceReference source_ref,
-      Context context,
-      Frame self,
-      Frame container) {
-    super(task_master, source_ref, context, self, container);
-  }
-
-  private <T> void add(Class<T> clazz, String name, Consumer<T> writer) {
-    Sink<T> lookup = find(clazz, writer);
-    lookup.allowDefault(false, null);
-    lookup.lookup(name);
+  CreateTime(TaskMaster taskMaster, SourceReference sourceReference, Context context, Frame self) {
+    super(Any::of, taskMaster, sourceReference, context, self);
   }
 
   @Override
-  protected ZonedDateTime computeResult() {
-    return ZonedDateTime.of(
-        (int) year,
-        (int) month,
-        (int) day,
-        (int) hour,
-        (int) minute,
-        (int) second,
-        (int) millisecond * 1000,
-        zone);
+  protected Frame computeResult() {
+    return MarshalledFrame.create(
+        taskMaster,
+        sourceReference,
+        context,
+        null,
+        ZonedDateTime.of(
+            (int) year,
+            (int) month,
+            (int) day,
+            (int) hour,
+            (int) minute,
+            (int) second,
+            (int) millisecond * 1_000_000,
+            zone),
+        AssistedFuture.getTimeTransforms());
   }
 
   @Override
   protected void setup() {
-
-    Sink<Long> month_lookup = find(Long.class, x -> month = x);
-    month_lookup.allowDefault(false, null);
-    ObjectSink<Ptr<Long>> month_obj = month_lookup.allowObject(Ptr::get, Ptr::new);
-    month_obj.add(
-        Long.class, "ordinal", false, Ptr::set, "Can only use a frame from the “months” frame.");
-    month_lookup.lookup("month");
-
-    add(Long.class, "millisecond", x -> millisecond = x);
-    add(Long.class, "second", x -> second = x);
-    add(Long.class, "minute", x -> minute = x);
-    add(Long.class, "hour", x -> hour = x);
-    add(Long.class, "day", x -> day = x);
-    add(Long.class, "year", x -> year = x);
-    add(Boolean.class, "is_utc", x -> zone = x ? ZoneId.of("Z") : ZoneId.systemDefault());
+    find(MONTH_MATCHER, x -> month = x, "month");
+    find(asInt(false), x -> millisecond = x, "millisecond");
+    find(asInt(false), x -> second = x, "second");
+    find(asInt(false), x -> minute = x, "minute");
+    find(asInt(false), x -> hour = x, "hour");
+    find(asInt(false), x -> day = x, "day");
+    find(asInt(false), x -> year = x, "year");
+    find(asBool(false), x -> zone = x ? ZoneId.of("Z") : ZoneId.systemDefault(), "is_utc");
   }
 }

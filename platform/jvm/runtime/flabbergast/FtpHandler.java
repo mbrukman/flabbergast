@@ -1,16 +1,17 @@
 package flabbergast;
 
+import java.net.URI;
 import java.net.URL;
+import org.kohsuke.MetaInfServices;
 
-public class FtpHandler extends UrlConnectionHandler {
-
-  public static final FtpHandler INSTANCE = new FtpHandler();
+@MetaInfServices(UriService.class)
+class FtpHandler extends UrlConnectionHandler {
 
   @Override
-  protected URL convert(String uri) throws Exception {
-
-    if (!uri.startsWith("ftp:") && !uri.startsWith("ftps:")) return null;
-    return new URL(uri);
+  protected Maybe<URL> convert(URI uri) {
+    return Maybe.of(uri)
+        .filter(x -> x.getScheme().equals("ftp") || x.getScheme().equals("ftps"))
+        .map(URI::toURL);
   }
 
   @Override

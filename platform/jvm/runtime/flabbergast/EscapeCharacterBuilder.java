@@ -1,41 +1,31 @@
 package flabbergast;
 
 import flabbergast.EscapeBuilder.Transformation;
-import flabbergast.ReflectedFrame.Transform;
-import java.util.Collections;
-import java.util.Map;
+import flabbergast.MarshalledFrame.Transform;
+import java.util.stream.Stream;
 
-public class EscapeCharacterBuilder extends BaseReflectedInterop<Transformation> {
-  private String character;
+class EscapeCharacterBuilder extends BaseReflectedInterop<Transformation> {
+  private int character;
   private String replacement;
 
-  public EscapeCharacterBuilder(
-      TaskMaster task_master,
-      SourceReference source_reference,
-      Context context,
-      Frame self,
-      Frame container) {
-    super(task_master, source_reference, context, self, container);
+  EscapeCharacterBuilder(
+      TaskMaster taskMaster, SourceReference sourceReference, Context context, Frame self) {
+    super(taskMaster, sourceReference, context, self);
   }
 
   @Override
-  protected Transformation computeResult() throws Exception {
-    int codepoint = EscapeBuilder.stringToCodepoint(character);
-    return (builder) -> builder.single_substitutions.put(codepoint, replacement);
+  protected Transformation computeReflectedValue() {
+    return builder -> builder.singleSubstitutions.put(character, replacement);
   }
 
   @Override
-  protected Map<String, Transform<Transformation>> getAccessors() {
-    return Collections.emptyMap();
+  protected Stream<Transform<Transformation>> getTransforms() {
+    return Stream.empty();
   }
 
   @Override
   protected void setup() {
-    Sink<String> char_lookup = find(String.class, x -> character = x);
-    char_lookup.allowDefault(false, null);
-    char_lookup.lookup("char");
-    Sink<String> replacement_lookup = find(String.class, x -> replacement = x);
-    replacement_lookup.allowDefault(false, null);
-    replacement_lookup.lookup("replacement");
+    find(asCodepoint(), x -> character = x, "char");
+    find(asString(false), x -> replacement = x, "replacement");
   }
 }

@@ -276,7 +276,7 @@ one that returns a list.}}}
 flattenifier : Template {
 	base : Required
 	value : Template base {
-		value +original: For item : original Reduce acc Append item With acc : []
+		value +original: For item : original Flatten x : item Select x
 	}
 }
 
@@ -303,15 +303,6 @@ float_to_str_list : Template From interop:utils/float/to/str {
 	exponential : False
 	{{{The number of decimal digits to use.}}}
 	digits : 0
-}
-
-{{{Create a frame with the specified attribute name and value.}}}
-frame : Template {
-	{{{The value to be used. Only one may be specified.}}}
-	args : Used
-	{{{The name to use}}}
-	name : Required
-	value : For arg : args Select name : arg
 }
 
 {{{Checks if the values in a frame are greater than a constant.}}}

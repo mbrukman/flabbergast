@@ -1,141 +1,129 @@
 package flabbergast;
 
-import java.io.IOException;
-import java.io.PrintWriter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.IntStream;
 import org.fusesource.jansi.Ansi;
 
-public class ConsoleTaskMaster extends TaskMaster {
-  boolean dirty = false;
+/** A task master meant for interactive TTYs */
+public abstract class ConsoleTaskMaster extends TaskMaster {
+  private boolean dirty = false;
 
   private String pad(String str, int length) {
     return String.format("%1$-" + length + "s", str);
   }
 
-  public void reportCircularEvaluation() throws IOException {
-    boolean exit = !hasInflightLookups() || dirty;
+  protected abstract void print(String str);
+
+  protected abstract void println(String str);
+
+  public void reportCircularEvaluation() {
+    final boolean exit = !hasInflightLookups() || dirty;
     dirty = false;
     if (exit) {
       clearInFlight();
       return;
     }
-    PrintWriter output = new PrintWriter(System.err);
-    Set<SourceReference> seen = new HashSet<SourceReference>();
-    output.print(Ansi.ansi().a(Ansi.Attribute.RESET).fg(Ansi.Color.RED).toString());
-    output.println("Circular evaluation detected.");
-    output.print(Ansi.ansi().a(Ansi.Attribute.RESET).toString());
-    for (Lookup lookup : this) {
-      output.print(Ansi.ansi().a(Ansi.Attribute.RESET).fg(Ansi.Color.BLUE).toString());
-      output.printf("Lookup for “%s” blocked. Lookup initiated at:\n", lookup.getName());
-      output.print(Ansi.ansi().a(Ansi.Attribute.RESET).toString());
-      lookup.getSourceReference().write(output, "  ", seen);
-      output.print(Ansi.ansi().a(Ansi.Attribute.RESET).fg(Ansi.Color.YELLOW).toString());
-      output.printf(" is waiting for “%s” in frame defined at:\n", lookup.getLastName());
-      output.print(Ansi.ansi().a(Ansi.Attribute.RESET).toString());
-      lookup.getLastFrame().getSourceReference().write(output, "  ", seen);
+    final Set<SourceReference> seen = new HashSet<>();
+    print(Ansi.ansi().a(Ansi.Attribute.RESET).fg(Ansi.Color.RED).toString());
+    println("Circular evaluation detected.");
+    print(Ansi.ansi().a(Ansi.Attribute.RESET).toString());
+    for (final BaseLookup lookup : this) {
+      print(Ansi.ansi().a(Ansi.Attribute.RESET).fg(Ansi.Color.BLUE).toString());
+      print("Lookup for “");
+      print(lookup.getName());
+      println("” blocked. Lookup initiated at:");
+      print(Ansi.ansi().a(Ansi.Attribute.RESET).toString());
+      lookup.getSourceReference().write(this::print, "  ", seen);
+      print(Ansi.ansi().a(Ansi.Attribute.RESET).fg(Ansi.Color.YELLOW).toString());
+      print(" is waiting for “");
+      print(lookup.getLastName());
+      println("” in frame defined at:");
+      print(Ansi.ansi().a(Ansi.Attribute.RESET).toString());
+      lookup.getLastFrame().getSourceReference().write(this::print, "  ", seen);
     }
-    output.flush();
     clearInFlight();
   }
 
   @Override
-  public void reportExternalError(String uri, LibraryFailure reason) {
+  public void reportLookupError(BaseLookup lookup, String failType) {
     dirty = true;
-    System.err.print(Ansi.ansi().a(Ansi.Attribute.RESET).fg(Ansi.Color.RED).toString());
-    switch (reason) {
-      case BAD_NAME:
-        System.err.printf("The URI “%s” is not a valid name.\n", uri);
-        break;
-      case CORRUPT:
-        System.err.printf("The URI “%s” could not be loaded.\n", uri);
-        break;
-      case MISSING:
-        System.err.printf("The URI “%s” could not be found.\n", uri);
-        break;
-      default:
-        break;
+    print(Ansi.ansi().a(Ansi.Attribute.RESET).fg(Ansi.Color.RED).toString());
+    if (failType == null) {
+      print("Undefined name “");
+      print(lookup.getName());
+      println("”. Lookup was as follows:");
+    } else {
+      print("Non-frame type ");
+      print(failType);
+      print(" while resolving name “");
+      print(lookup.getName());
+      println("”. Lookup was as follows:");
     }
-    System.err.print(Ansi.ansi().a(Ansi.Attribute.RESET).toString());
-  }
-
-  @Override
-  public void reportLookupError(Lookup lookup, Class<?> fail_type) {
-    dirty = true;
-    try {
-      PrintWriter output = new PrintWriter(System.err);
-      output.print(Ansi.ansi().a(Ansi.Attribute.RESET).fg(Ansi.Color.RED).toString());
-      if (fail_type == null) {
-        output.printf("Undefined name “%s”. Lookup was as follows:\n", lookup.getName());
-      } else {
-        output.printf(
-            "Non-frame type %s while resolving name “%s”. Lookup was as follows:\n",
-            fail_type, lookup.getName());
-      }
-      output.print(Ansi.ansi().a(Ansi.Attribute.RESET).toString());
-      int col_width = Math.max((int) Math.log10(lookup.getFrameCount()) + 1, 3);
-      for (int name_it = 0; name_it < lookup.getNameCount(); name_it++) {
-        col_width = Math.max(col_width, lookup.getName(name_it).length());
-      }
-      for (int name_it = 0; name_it < lookup.getNameCount(); name_it++) {
-        output.printf("│ %s", pad(lookup.getName(name_it), col_width));
-      }
-      output.println("│");
-      for (int name_it = 0; name_it < lookup.getNameCount(); name_it++) {
-        output.print(name_it == 0 ? "├" : "┼");
-        for (int s = 0; s <= col_width; s++) {
-          output.print("─");
+    print(Ansi.ansi().a(Ansi.Attribute.RESET).toString());
+    final int colWidth =
+        IntStream.concat(
+                IntStream.of((int) Math.log10(lookup.getFrameCount()) + 1, 3),
+                lookup.names().mapToInt(String::length))
+            .max()
+            .getAsInt();
+    lookup
+        .names()
+        .forEach(
+            name -> {
+              print("│");
+              print(pad(name, colWidth));
+            });
+    println("│");
+    IntStream.range(0, lookup.getNameCount())
+        .mapToObj(i -> (i == 0 ? "├" : "┼") + String.join("", Collections.nCopies(colWidth, "─")))
+        .forEach(this::print);
+    println("┤");
+    final Map<Frame, String> knownFrames = new HashMap<>();
+    final List<Frame> frameList = new ArrayList<>();
+    final String nullText = pad("│ ", colWidth + 2);
+    for (int frameIt = 0; frameIt < lookup.getFrameCount(); frameIt++) {
+      for (int name = 0; name < lookup.getNameCount(); name++) {
+        final Frame frame = lookup.get(name, frameIt);
+        if (frame == null) {
+          print(nullText);
+          continue;
         }
-      }
-      output.println("┤");
-      Map<Frame, String> known_frames = new HashMap<Frame, String>();
-      java.util.List<Frame> frame_list = new ArrayList<Frame>();
-      String null_text = pad("│ ", col_width + 2);
-      for (int frame_it = 0; frame_it < lookup.getFrameCount(); frame_it++) {
-        for (int name_it = 0; name_it < lookup.getNameCount(); name_it++) {
-          Frame frame = lookup.get(name_it, frame_it);
-          if (frame == null) {
-            output.print(null_text);
-            continue;
-          }
-          if (!known_frames.containsKey(frame)) {
-            frame_list.add(frame);
-            known_frames.put(frame, pad(Integer.toString(frame_list.size()), col_width));
-          }
-          output.printf("│ %s", known_frames.get(frame));
+        if (!knownFrames.containsKey(frame)) {
+          frameList.add(frame);
+          knownFrames.put(frame, pad(Integer.toString(frameList.size()), colWidth));
         }
-        output.println("│");
+        print("│");
+        print(knownFrames.get(frame));
       }
-      Set<SourceReference> seen = new HashSet<SourceReference>();
-      output.print(Ansi.ansi().a(Ansi.Attribute.RESET).fg(Ansi.Color.BLUE).toString());
-      output.println("Lookup happened here:");
-      output.print(Ansi.ansi().a(Ansi.Attribute.RESET).toString());
-      lookup.getSourceReference().write(output, "  ", seen);
-      for (int it = 0; it < frame_list.size(); it++) {
-        output.print(Ansi.ansi().a(Ansi.Attribute.RESET).fg(Ansi.Color.YELLOW).toString());
-        output.printf("Frame %s defined:\n", it + 1);
-        output.print(Ansi.ansi().a(Ansi.Attribute.RESET).toString());
-        frame_list.get(it).getSourceReference().write(output, "  ", seen);
-      }
-      output.flush();
-    } catch (IOException e) {
+      println("│");
+    }
+    final Set<SourceReference> seen = new HashSet<>();
+    print(Ansi.ansi().a(Ansi.Attribute.RESET).fg(Ansi.Color.BLUE).toString());
+    println("Lookup happened here:");
+    print(Ansi.ansi().a(Ansi.Attribute.RESET).toString());
+    lookup.getSourceReference().write(this::print, "  ", seen);
+    for (int it = 0; it < frameList.size(); it++) {
+      print(Ansi.ansi().a(Ansi.Attribute.RESET).fg(Ansi.Color.YELLOW).toString());
+      print("Frame ");
+      print(Integer.toString(it + 1));
+      println(" defined:");
+      print(Ansi.ansi().a(Ansi.Attribute.RESET).toString());
+      frameList.get(it).getSourceReference().write(this::print, "  ", seen);
     }
   }
 
   @Override
   public void reportOtherError(SourceReference reference, String message) {
     dirty = true;
-    System.err.print(Ansi.ansi().a(Ansi.Attribute.RESET).fg(Ansi.Color.BLUE).toString());
-    System.err.println(message);
-    System.err.print(Ansi.ansi().a(Ansi.Attribute.RESET).toString());
-    try {
-      PrintWriter output = new PrintWriter(System.err);
-      reference.write(output, "  ");
-      output.flush();
-    } catch (IOException e) {
-    }
+    print(Ansi.ansi().a(Ansi.Attribute.RESET).fg(Ansi.Color.BLUE).toString());
+    println(message);
+    print(Ansi.ansi().a(Ansi.Attribute.RESET).toString());
+    reference.write(this::print, "  ");
   }
 }

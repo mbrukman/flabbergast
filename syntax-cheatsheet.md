@@ -11,6 +11,8 @@
 
 `Int` – integral number.
 
+`LookupHandler` – algorithm for resolving names.
+
 `Null` – nothing much.
 
 `Str` – a Unicode text string
@@ -56,8 +58,6 @@ Type coercion: `x To t` (_e.g._, `3 To Float`)
 
 Type check: `x Is t` (_e.g._, `3 Is Bool`, `a Is Null`)
 
-Type determination: `TypeOf x` or `TypeOf x With foo` (_e.g._, `TypeOf "x" With foo` will `foo.str`)
-
 Finite: `x Is Finite`
 
 Not-a-number: `x Is NaN`
@@ -67,6 +67,12 @@ Raise an error: `Error "Make it stop."`
 String length: `Length "hello"`
 
 Remote contextual lookup: `Lookup x.y In someframe`
+
+Remote custom lookup: `Lookup x.y Using handler In someframe`
+
+Custom lookup: `Lookup x.y Using handler Here`
+
+Type-directed lookup: `Lookup foo.TypeOf(x) Here` (_e.g._, `Lookup foo.TypeOf("x") Here` will `foo.str`)
 
 Instantiate a template: `tmpl { overrides... }` (_e.g._, `some_template { x : 3 }`)
 
@@ -132,19 +138,31 @@ Eager evaluation: `name : Now expr` This causes the expression to be evaluated i
 
 ## Fricassée Selectors
 
-Filter: `... Where condition` (_e.g._, `For x : args Where x > 5 Select x`)
+Pass-through selector: `For Each x`
+
+Merged attribute selector: `For x : expr1, y : expr2, n : Name, o : Ordinal`
+
+Accumulating value: `... Accumulate expr With name : initial` (_e.g._, running product `For x : args Accumulate product * x With product : 1 Select product`)
+
+Flattening: `... Flatten x : expr1, y : expr2, n : Name, o : Ordinal`
+
+Grouping (anonymous): `... Group x : exprX, y : exprY By a : exprA, b : exprB` (_e.g._, `For x : args Group target : x.target By x.port Enforce Int`)
+
+Grouping (named): `... Group x : exprX, y : exprY Named exprN By a : exprA, b : exprB` (_e.g._, `For x : args, n : Name Group target : x.target Named n By x.port Enforce Int`)
+
+Name binding: `... Let a : expr, b : expr` (_e.g._, `For x : args Let x_squared : x * x Reduce x_squared * acc + x_squared With acc : 0`
 
 Ordering: `... Order By expr` (_e.g._, `For x : args Order By x To Str Select x`)
 
 Reverse: `... Reverse` (_e.g._, `For x : args Reverse Select x`)
 
-Accumulating value: `... Accumulate expr With name : initial` (_e.g._, running product `For x : args Accumulate product * x With product : 1 Select product`)
+Randomisation: `... Shuffle`
 
-Name binding: `... Let a : expr, b : expr` (_e.g._, `For x : args Let x_squared : x * x Reduce x_squared * acc + x_squared With acc : 0`
+Discard input before: `... Skip expr` (_e.g._, `For x : args, p : Ordinal Skip p < 3 Select x)
 
-Pass-through selector: `For Each x`
+Discard input after: `... Until expr` (_e.g._, `For x : args, p : Ordinal Until p > 3 Select x)
 
-Merged attribute selector: `For x : expr1, y : expr2, n : Name, o : Ordinal`
+Filter: `... Where condition` (_e.g._, `For x : args Where x > 5 Select x`)
 
 ## Fricassée Results
 
@@ -153,6 +171,10 @@ Reducer (fold): `Reduce expr With name : initial` (_e.g._, `For x : args Reduce 
 To list (map): `Select expr` (_e.g._, `For x : arg Select x * 2`)
 
 To frame (map): `Select nameexpr : expr` (_e.g._, `For x : arg, name : Name Select name : x * 2`)
+
+Single result: `Single x` (_e.g._, `For x : arg Where x.id == 3 Single x`)
+
+Single result: `Single x Or default` (_e.g._, `For x : arg Where x.id == 3 Single x Or Null`)
 
 ## String Parts
 

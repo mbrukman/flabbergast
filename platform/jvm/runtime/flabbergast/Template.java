@@ -1,35 +1,65 @@
 package flabbergast;
 
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
+import java.util.Arrays;
+import java.util.stream.Stream;
 
 /** A Flabbergast Template, holding functions for computing attributes. */
-public class Template implements Iterable<String> {
-  private Map<String, ComputeValue> attributes = new HashMap<String, ComputeValue>();
+public class Template extends DefinitionBuilder {
 
-  private Frame container;
+  public static Definition instantiate(
+      Frame.RuntimeBuilder[] builders,
+      String filename,
+      int startLine,
+      int startColumn,
+      int endLine,
+      int endColumn,
+      String... names) {
+    return (taskMaster, sourceReference, context, self) ->
+        new AssistedFuture(taskMaster, sourceReference, context) {
+          private Template template;
 
-  private Context context;
+          @Override
+          protected void resolve() {
+            complete(
+                Any.of(
+                    Frame.create(
+                        taskMaster,
+                        new JunctionReference(
+                            "instantiate template",
+                            filename,
+                            startLine,
+                            startColumn,
+                            endLine,
+                            endColumn,
+                            sourceReference,
+                            template.getSourceReference()),
+                        context.append(template.getContext()),
+                        self,
+                        Stream.concat(Stream.of(template), Arrays.stream(builders)))));
+          }
 
-  private SourceReference source_reference;
+          @Override
+          protected void setup() {
+            find(asTemplate(false), t -> template = t, names);
+          }
+        };
+  }
 
-  public Template(SourceReference source_ref, Context context, Frame container) {
-    this.source_reference = source_ref;
+  private final Frame container;
+
+  private final Context context;
+
+  private final SourceReference sourceReference;
+
+  public Template(
+      SourceReference sourceReference,
+      Context context,
+      Frame container,
+      DefinitionBuilder... builders) {
+    super(Arrays.stream(builders));
+    this.sourceReference = sourceReference;
     this.context = context;
     this.container = container;
-  }
-
-  /**
-   * Access the functions in the template. Templates should not be mutated, but this policy is not
-   * enforced by this class; it must be done in the calling code.
-   */
-  public ComputeValue get(String name) {
-    return attributes.containsKey(name) ? attributes.get(name) : null;
-  }
-
-  public ComputeValue get(Stringish name) {
-    return get(name.toString());
   }
 
   public Frame getContainer() {
@@ -43,21 +73,24 @@ public class Template implements Iterable<String> {
 
   /** The stack trace at the time of creation. */
   public SourceReference getSourceReference() {
-    return source_reference;
+    return sourceReference;
   }
 
-  @Override
-  public Iterator<String> iterator() {
-    return attributes.keySet().iterator();
-  }
-
-  public void set(String name, ComputeValue value) {
-    if (value == null) {
-      return;
-    }
-    if (attributes.containsKey(name)) {
-      throw new IllegalStateException("Redefinition of attribute " + name + ".");
-    }
-    attributes.put(name, value);
+  public SourceReference joinSourceReference(
+      String filename,
+      int startLine,
+      int startColumn,
+      int endLine,
+      int endColumn,
+      SourceReference caller) {
+    return new JunctionReference(
+        "amend template",
+        filename,
+        startLine,
+        startColumn,
+        endLine,
+        endColumn,
+        caller,
+        getSourceReference());
   }
 }

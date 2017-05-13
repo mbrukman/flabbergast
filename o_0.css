@@ -1,3 +1,13 @@
+path {
+fill-opacity:1;
+fill-rule:nonzero;
+stroke:none
+}
+
+svg {
+vertical-align: middle;
+}
+
 a,.show {
 outline:0;
 transition:color .5s ease-in-out;
@@ -14,10 +24,10 @@ cursor:pointer;
 
 dt {
 border:1px solid #fff;
-margin-top:.2em;
 margin-bottom:.2em;
-transition:border-color .5s ease-in-out;
+margin-top:.2em;
 padding:.2em .2em .4em;
+transition:border-color .5s ease-in-out;
 }
 
 dt:hover {
@@ -80,29 +90,68 @@ margin:.5em;
 padding:.3em;
 }
 
-#references a {
-border:1px solid #4F94CD;
-box-shadow:.1em .1em .3em 0 rgba(0,0,0,0.45);
-border-radius:.3em;
+#references a,#index a,#man a {
 color:#4F94CD;
-font-size:120%;
-margin-left:1em;
-margin-right:1em;
-text-align:center;
-padding:1em;
+display:block;
 }
 
-#references a.error,#references p {
-border:1px solid #C00;
-background-color:#FCC;
-color:#C00;
+#references a.error,#refstab > p {
+color:#F88379;
+font-weight:700;
+}
+
+#tabbar span {
+font-size:32px;
+color:#eee;
+border-bottom:2px #36648B solid;
+padding:5px;
+}
+
+#tabbar span path {
+fill:#eee;
+}
+
+#tabbar span.selected {
+background-color:#fff;
+background-image:linear-gradient(tobottom,#fff,#eee);
+background-repeat:repeat-x;
+border-bottom:2px #000 solid;
+color:#36648B;
+}
+
+#tabbar span.selected path {
+fill:#36648B;
+}
+
+html,body {
+height:100%;
+margin:0;
+padding:0;
 }
 
 body {
-font-family:sans-serif;
-width:75%;
+font-family:'Quicksand',sans-serif;
 margin:0;
-padding:1em 1em 0;
+overflow:hidden;
+}
+
+#container,#pane,#content {
+box-sizing:border-box;
+height:calc(100vh - 50px);
+}
+
+#pane {
+background:#36648B;
+border:2px solid #36648B;
+display:flex;
+flex-direction:column;
+float:right;
+padding-top:2px;
+width:20vw;
+}
+
+#content {
+overflow:auto;
 }
 
 p {
@@ -110,51 +159,73 @@ text-align:justify;
 hyphens:auto;
 }
 
-h1 + p {
+h1 {
+background-color:#36648B;
+background-image:linear-gradient(tobottom,#4076a5,#36648B);
+background-repeat:repeat-x;
+color:#fff;
+height:50px;
+line-height:50px;
+margin:0;
+padding:0 0 0 .5em;
+}
+
+h1 span,h1 a,h1 a:visited,h1 a:link {
+color:#eee;
+float:right;
+padding-left:.5em;
+padding-right:.5em;
+}
+h1 path{
+fill:#eee;
+}
+
+h1 a:hover, h1 a:active, h1 a:focus {
+color:#fff;
+}
+h1 a:hover path,h1 a:active path, h1 a:focus path {
+fill:#fff;
+}
+
+#content p:first-child {
 font-size:120%;
 }
 
-#searchpane {
-position:fixed;
-top:0;
-right:0;
-clear:left;
-width:20vw;
-border:2px solid #A7ACAF;
-border-radius:.3em;
-display:table;
+#searcharea {
 padding:1em;
 }
 
-#searcharea {
-margin-bottom:1em;
-}
-
 #searcharea span {
-cursor:pointer;
-font-weight:700;
-color:#36648B;
 margin-left:.5em;
 padding:.2em;
 }
 
 #searcharea input {
-width:80%;
 border:1px solid #A7ACAF;
 color:gray;
 padding:.2em;
+width:80%;
+}
+
+.button,#searcharea .option-off,#searcharea .option-on {
+cursor:pointer;
+color:#fff;
 }
 
 #searcharea .option-off,#searcharea .option-on {
-border-radius:.3em;
-border:1px solid #36648B;
-font-size:80%;
+border-bottom:2px solid #fff;
+transition:border-color 0.5s ease-in-out, background-color 0.5s ease-in-out, color 0.5s ease-in-out;
+}
+
+#searcharea .option-off,#searcharea .option-on {
 margin:.2em;
 }
 
 #searcharea .option-on {
-background-color:#4F94CD;
-color:#fff;
+border-bottom:2px solid #000;
+background-color: #fff;
+color:#36648B;
+transition:border-color 0.5s ease-in-out, background-color 0.5s ease-in-out, color 0.5s ease-in-out;
 }
 
 #search.error {
@@ -162,29 +233,31 @@ background-color:#F2DEDE;
 border-color:#AA4542;
 }
 
+#searchtab,#refstab,#indextab,#mantab {
+display:flex;
+flex-direction:column;
+flex:1;
+min-height:0;
+}
+
 #terms #nomatches {
 border:none;
 font-weight:700;
 text-align:center;
 vertical-align:middle;
-height:50%;
-padding-top:30%;
-overflow-y:hidden;
 }
 
-#terms {
-display:table-row;
-width:90%;
-}
-
-#terms div {
-border:1px solid #A7ACAF;
+#terms,#references,#index,#man {
+background-color:#fff;
 border-radius:.3em;
-overflow-y:scroll;
-height:calc(90vh-3em);
+border:1px solid #A7ACAF;
+flex:1;
+flex-basis: fill;
+margin:5px 5px 10px;
+overflow:auto;
 }
 
-#terms a {
+#terms a,#references a,#index a,#man a {
 color:#AAA;
 display:block;
 padding:.5em;
@@ -194,16 +267,12 @@ padding:.5em;
 font-weight:700;
 }
 
-:target + dd {
-border:1px solid #4F94CD;
+:target + dd.populated {
 border-radius:.2em;
+border:1px solid #4F94CD;
 transition:border-color 1s ease-in-out;
 }
 
-a:hover,a:active,a:focus,.show,#searcharea .option-off {
+a:hover,a:active,a:focus,.show {
 color:#36648B;
-}
-
-#references,#references p:first-of-type {
-margin-top:2em;
 }

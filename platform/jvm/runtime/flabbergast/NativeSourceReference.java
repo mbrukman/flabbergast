@@ -1,8 +1,7 @@
 package flabbergast;
 
-import java.io.IOException;
-import java.io.Writer;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /** A stack element that captures part of the language infrastructure. */
 public class NativeSourceReference extends SourceReference {
@@ -14,10 +13,10 @@ public class NativeSourceReference extends SourceReference {
   }
 
   @Override
-  public void write(Writer writer, String prefix, Set<SourceReference> seen) throws IOException {
-    writer.write(prefix);
-    writer.write("└ <");
-    writer.write(name);
-    writer.write(">\n");
+  public void write(Consumer<String> writer, String prefix, Set<SourceReference> seen) {
+    writer.accept(prefix);
+    writer.accept("└ <");
+    writer.accept(name);
+    writer.accept(">\n");
   }
 }

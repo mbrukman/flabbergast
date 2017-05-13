@@ -3,143 +3,130 @@ package flabbergast;
 import java.util.ArrayList;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Consumer;
 
-/** A generic computation to be worked on by the TaskMaster. */
+/** A computation to be worked on by the TaskMaster. */
 public abstract class Future {
-
-  /** Apply an override to a normal computation resulting in another normal computation. */
-  public static ComputeValue performOverride(
-      final String filename,
-      final int start_line,
-      final int start_column,
-      final int end_line,
-      final int end_column,
-      final ComputeOverride wrapper,
-      final ComputeValue original) {
-    return new ComputeValue() {
-
-      @Override
-      public Future invoke(
-          TaskMaster task_master,
-          SourceReference reference,
-          Context context,
-          Frame self,
-          Frame container) {
-        SourceReference inner_reference =
-            new BasicSourceReference(
-                "used by override",
-                filename,
-                start_line,
-                start_column,
-                end_line,
-                end_column,
-                reference);
-        if (original == null) {
-          return new FailureFuture(
-              task_master, inner_reference, "override of non-existant attribute");
-        }
-
-        return wrapper.invoke(
-            task_master,
-            reference,
-            context,
-            self,
-            container,
-            original.invoke(task_master, inner_reference, context, self, container));
-      }
-    };
+  public interface CheckFuture extends AcceptAny {
+    void unfinished();
   }
 
-  /** The delegate(s) to be invoked when the computation is complete. */
-  private ArrayList<ConsumeResult> consumer = new ArrayList<ConsumeResult>();
+  private ArrayList<ConsumeResult> consumers = new ArrayList<>();
 
   private final Lock ex = new ReentrantLock();
 
-  /**
-   * The return value of the computation.
-   *
-   * <p>This should be assigned by the subclass.
-   */
-  protected Object result = null;
+  private Any result = null;
 
-  protected final TaskMaster task_master;
+  protected final TaskMaster taskMaster;
 
   private boolean virgin = true;
 
-  public Future(TaskMaster task_master) {
-    this.task_master = task_master;
+  public Future(TaskMaster taskMaster) {
+    this.taskMaster = taskMaster;
+  }
+
+  /**
+   * Indicate this future's value has been determined.
+   *
+   * <p>It is an error to call this method multiple times. The caller should return immediately
+   * after calling this.
+   *
+   * @param value the result of this computation
+   */
+  protected final void complete(Any value) {
+    if (value != null) {
+      throw new IllegalStateException("Attempted to recomplete a future");
+    }
+    ex.lock();
+    result = value;
+    final ArrayList<ConsumeResult> consumerCopy = consumers;
+    consumers = null;
+    ex.unlock();
+
+    for (final ConsumeResult cr : consumerCopy) {
+      cr.consume(result);
+    }
   }
 
   /** Called by the TaskMaster to start or continue computation. */
-  void compute() {
+  final void compute() {
     if (result == null) {
       run();
+    }
+  }
+
+  public final TaskMaster getTaskMaster() {
+    return taskMaster;
+  }
+
+  /**
+   * Attach a callback to this future to be invoked with the unboxed result when/if the future
+   * completes. If already complete, the callback is invoked immediately.
+   */
+  public final void listen(AcceptAny newConsumer) {
+    listen(any -> any.accept(newConsumer));
+  }
+
+  /**
+   * Attach a callback to this future to be invoked with the boxed result when/if the future
+   * completes. If already complete, the callback is invoked immediately.
+   */
+  public void listen(ConsumeResult newConsumer) {
+    ex.lock();
+    boolean consumeNow = false;
+    try {
       if (result == null) {
-        return;
+        consumers.add(newConsumer);
+        if (virgin && taskMaster != null) {
+          virgin = false;
+          taskMaster.slot(this);
+        }
+      } else {
+        consumeNow = true;
       }
-      wakeupListeners();
+    } finally {
+      ex.unlock();
+    }
+    if (consumeNow) {
+      newConsumer.consume(result);
     }
   }
 
   /**
-   * Attach a callback when the computation is complete. If already complete, the callback is
-   * immediately invoked.
+   * The method that will be invoked when the result is needed.
+   *
+   * <p>It will be invoked once when initially scheduled. It may be invoked multiple again if {@link
+   * #slot()} is called.
    */
-  public void listen(ConsumeResult new_consumer) {
-    listen(new_consumer, true);
-  }
-
-  public void listen(ConsumeResult new_consumer, boolean needs_slot) {
-    ex.lock();
-    if (result == null) {
-      consumer.add(new_consumer);
-      if (needs_slot) {
-        slotHelper();
-      }
-      ex.unlock();
-    } else {
-      ex.unlock();
-      new_consumer.consume(result);
-    }
-  }
-
-  public void listenDelayed(ConsumeResult new_consumer) {
-    listen(new_consumer, false);
-  }
-
-  /** The method that will be invoked when the result is needed. */
   protected abstract void run();
 
-  public void slot() {
-    ex.lock();
-    if (result == null) {
-      slotHelper();
-    }
-    ex.unlock();
+  /**
+   * Indicate this computation should be scheduled again.
+   *
+   * <p>When a computation needs to wait for data, it should start an asynchronous event and return.
+   * When the asynchronous callback is invoked, it should then save the result and trigger a “slot”
+   * so that computation will restart from {@link #run()}. Since the call depth in callbacks is
+   * undefined, minimal work should be done in the callback for multiple reasons: 1. other listeners
+   * for that result are starved and could be serviced by other cores, 2. if the result is computed,
+   * this can trigger a cascade of nested callbacks, possibly resulting in stack overflow.
+   */
+  protected void slot() {
+    taskMaster.slot(this);
   }
 
-  private void slotHelper() {
-    if (virgin && task_master != null) {
-      virgin = false;
-      task_master.slot(this);
-    }
-  }
-
-  protected void wakeupListeners() {
-    if (result == null) {
-      throw new UnsupportedOperationException();
-    }
+  /** Get the unboxed result of this computation or an indication that it is not yet finished. */
+  public void visit(CheckFuture visitor) {
+    Consumer<CheckFuture> consumer;
     ex.lock();
-    ArrayList<ConsumeResult> consumer_copy = consumer;
-    consumer = null;
-    ex.unlock();
-
-    if (consumer_copy == null) {
-      return;
+    try {
+      if (result == null) {
+        consumer = CheckFuture::unfinished;
+      } else {
+        consumer = v -> result.accept(v);
+      }
+    } finally {
+      ex.unlock();
     }
-
-    for (ConsumeResult cr : consumer_copy) {
-      cr.consume(result);
-    }
+    consumer.accept(visitor);
   }
 }

@@ -1,38 +1,33 @@
 package flabbergast;
 
-public class FunctionInterop2<T1, T2, R> extends BaseFunctionInterop<R> {
-  private final Class<T1> clazz1;
-  private final Class<T2> clazz2;
+import java.util.function.Function;
+
+class FunctionInterop2<T1, T2, R> extends BaseFunctionInterop<R> {
   private final Func2<T1, T2, R> func;
   private T1 input1;
   private T2 input2;
+  private final Matcher<T1> matcher1;
+  private final Matcher<T2> matcher2;
   private final String parameter1;
-  private final boolean parameter1Nullable;
   private final String parameter2;
-  private final boolean parameter2Nullable;
 
-  public FunctionInterop2(
-      Class<R> returnClass,
+  FunctionInterop2(
+      Function<R, Any> packer,
       Func2<T1, T2, R> func,
-      Class<T1> clazz1,
-      boolean parameter1Nullable,
+      Matcher<T1> matcher1,
       String parameter1,
-      Class<T2> clazz2,
-      boolean parameter2Nullable,
+      Matcher<T2> matcher2,
       String parameter2,
-      TaskMaster task_master,
-      SourceReference source_reference,
+      TaskMaster taskMaster,
+      SourceReference sourceReference,
       Context context,
-      Frame self,
-      Frame container) {
-    super(task_master, source_reference, context, self, container);
+      Frame self) {
+    super(packer, taskMaster, sourceReference, context, self);
     this.func = func;
-    this.clazz1 = clazz1;
+    this.matcher1 = matcher1;
     this.parameter1 = parameter1;
-    this.parameter1Nullable = parameter1Nullable;
-    this.clazz2 = clazz2;
+    this.matcher2 = matcher2;
     this.parameter2 = parameter2;
-    this.parameter2Nullable = parameter2Nullable;
   }
 
   @Override
@@ -42,11 +37,7 @@ public class FunctionInterop2<T1, T2, R> extends BaseFunctionInterop<R> {
 
   @Override
   protected void setup() {
-    Sink<T1> input1_lookup = find(clazz1, x -> this.input1 = x);
-    input1_lookup.allowDefault(parameter1Nullable, null);
-    input1_lookup.lookup(parameter1);
-    Sink<T2> input2_lookup = find(clazz2, x -> this.input2 = x);
-    input2_lookup.allowDefault(parameter2Nullable, null);
-    input2_lookup.lookup(parameter2);
+    find(matcher1, x -> this.input1 = x, parameter1);
+    find(matcher2, x -> this.input2 = x, parameter2);
   }
 }

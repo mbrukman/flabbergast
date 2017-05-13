@@ -1,34 +1,35 @@
 package flabbergast;
 
-import flabbergast.ReflectedFrame.Transform;
-import java.util.Map;
-
-public abstract class BaseReflectedInterop<R> extends InterlockedLookup {
-
-  protected final Frame container;
-  protected final Frame self;
+import flabbergast.MarshalledFrame.Transform;
+import java.util.stream.Stream;
+/**
+ * Base for injecting native functions into Flabbergast as function-like templates where the results
+ * are {@link MarshalledFrame}
+ *
+ * @param <R> The return type of the function-like template
+ */
+public abstract class BaseReflectedInterop<R> extends BaseFunctionInterop<Frame> {
 
   public BaseReflectedInterop(
-      TaskMaster task_master,
-      SourceReference source_reference,
-      Context context,
-      Frame self,
-      Frame container) {
-    super(task_master, source_reference, context);
-    this.self = self;
-    this.container = container;
+      TaskMaster taskMaster, SourceReference sourceReference, Context context, Frame self) {
+    super(Any::of, taskMaster, sourceReference, context, self);
   }
 
-  protected abstract R computeResult() throws Exception;
-
-  protected abstract Map<String, Transform<R>> getAccessors();
+  /**
+   * Compute the value to be wrapped in a {@link MarshalledFrame} and returned to the calling
+   * Flabbergast code
+   *
+   * @throws Exception Any exception thrown will be caught and the message will be presented in the
+   *     Flabbergast stack trace.
+   */
+  protected abstract R computeReflectedValue() throws Exception;
 
   @Override
-  protected final void resolve() {
-    try {
-      result = ReflectedFrame.create(task_master, computeResult(), getAccessors());
-    } catch (Exception e) {
-      task_master.reportOtherError(source_reference, e.getMessage());
-    }
+  protected final Frame computeResult() throws Exception {
+    return MarshalledFrame.create(
+        taskMaster, sourceReference, context, self, computeReflectedValue(), getTransforms());
   }
+
+  /** Provide all the transformations to create attributes in the output frame. */
+  protected abstract Stream<Transform<R>> getTransforms();
 }

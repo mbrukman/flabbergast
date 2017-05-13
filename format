@@ -7,4 +7,4 @@ test -d tools || mkdir tools
 FORMAT_JAR=tools/google-java-format.jar
 test -f ${FORMAT_JAR} || wget -O ${FORMAT_JAR} https://github.com/google/google-java-format/releases/download/google-java-format-1.3/google-java-format-1.3-all-deps.jar
 
-java -jar tools/google-java-format.jar -r $(find platform/jvm/runtime platform/jvm/compiler platform/jvm/testing  -name '*.java')
+java -jar tools/google-java-format.jar -r $(find platform/jvm/runtime platform/jvm/compiler platform/jvm/testing -name '*.java')

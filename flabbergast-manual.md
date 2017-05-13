@@ -681,6 +681,29 @@ Presently, there are two ordering operations: `Reverse` reverses the order of th
 
 Note that if two values have the same sort key, in the example -1 and 1 do, then the order between them is not guaranteed. Any type that can be compared using the `<=>` can be used as a sort key, but all must be of the same type.
 
+If there is a collection of nested frames, they can concatenated using `Flatten`, which works like `For`, so it can do the same zip, if required.
+
+    For a :
+      [
+        { text : "Hi"  recipients : [ "Andre", "Gráinne", "Kyle" ] },
+        { text : "Something else"  recipients : [ "Andre", "Kyle" ] }
+      ]
+      Flatten recipient : a.recipients
+      Select recipient & ": " & a.text
+    # Yields [ "Andre: Hi", "Gráinne: Hi", "Kyle: Hi", "Andre: Something else", "Kyle: Something else" ]
+
+Things can also be recomposed using `Group By`:
+
+    For a :
+      [
+        { text : "Hi"  recipients : [ "Andre", "Gráinne", "Kyle" ] },
+        { text : "Something else"  recipients : [ "Andre", "Kyle" ] }
+      ]
+      Flatten recipient : a.recipients
+      Group messages : a.text By recipient
+      Select { r : recipient  m : messages }
+    # Yields [ { r : "Andre" m : [ "Hi", "Something else" ] }, { r : "Gráinne" m : [ "Hi" ] }, { r : "Kyle"  m : [ "Hi", "Something else" ] } ]
+
 ### Frames and Templates
 
 In addition to literal frames, frames can be instantiated from templates. The instantiation can also amended a template by adding, removing, or overriding attributes. The syntax for instantiation is an expression yielding a template followed by `{`, an optional list of amendments, and terminated by `}`. Templates are created in a syntax similar to literal frames: `Template {`, a list of attributes, followed by `}`.

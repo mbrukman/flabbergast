@@ -1,0 +1,31 @@
+
+kws_grammar : grammar_tmpl {
+	syntax_groups +: {
+		block : Template group_tmpl {
+			fields +: {
+				instructions : syntax_group.instruction.as_field_list
+			}
+			syntax_elements +: {
+				return_block : Template syntax_tmpl {
+					fields +: {
+						retval : Template field_tmpl { type : types.str }
+					}
+				}
+				error_block : Template syntax_tmpl {
+					fields +: {
+						retval : Template field_tmpl { type : types.str }
+					}
+				}
+				switch_block : Template syntax_tmpl {
+					fields +: {
+						when_true : Template field_tmpl { type : types.str }
+						when_false : Template field_tmpl { type : types.str }
+						retval : Template field_tmpl { type : types.str }
+					}
+				}
+			}
+		}
+		instruction : Template group_tmpl {
+		}
+	}
+}

@@ -5,8 +5,9 @@
 .build
 build
 compiler-generated
+fat-generated
 flabbergast-*.jar
 manifest
 maven-deploy
-runtime/flabbergast/db-jvm.java
+runtime-generated
 testingclasspath.sh

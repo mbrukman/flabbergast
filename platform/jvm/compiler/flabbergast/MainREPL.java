@@ -2,9 +2,12 @@ package flabbergast;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.EnumSet;
-import jline.console.ConsoleReader;
-import jline.console.completer.StringsCompleter;
+import java.util.Optional;
+import java.util.stream.Stream;
 import jline.console.history.FileHistory;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -16,109 +19,28 @@ import org.fusesource.jansi.Ansi;
 
 public class MainREPL {
 
-  static class CurrentFrame implements ConsumeResult {
-    private Frame current;
-
-    public CurrentFrame(Frame initial) {
-      current = initial;
-    }
-
-    @Override
-    public void consume(Object result) {
-      if (result != null && result instanceof Frame) {
-        current = (Frame) result;
-      }
-    }
-
-    public Frame get() {
-      return current;
-    }
-  }
-
-  static class KeepRunning implements ConsumeResult {
-    private boolean keep_running = true;
-
-    boolean allowed() {
-      return keep_running;
-    }
-
-    @Override
-    public void consume(Object result) {
-      if (result != null && result instanceof Boolean) {
-        keep_running = (Boolean) result;
-      }
-    }
-  }
-
-  public static class PrintToConsole extends ElaboratePrinter {
-    private ConsoleReader reader;
-    private Object value;
-
-    public PrintToConsole(ConsoleReader reader) {
-      this.reader = reader;
-    }
-
-    @Override
-    public void consume(Object result) {
-      value = result;
-    }
-
-    public void print() {
-      if (value != null) {
-        print(value);
-      }
-    }
-
-    @Override
-    protected void write(String string) throws IOException {
-      reader.print(string);
-    }
-  }
-
-  static class RawPrint implements ConsumeResult {
-    private ConsoleReader reader;
-
-    public RawPrint(ConsoleReader reader) {
-      this.reader = reader;
-    }
-
-    @Override
-    public void consume(Object result) {
-      try {
-        reader.println(result.toString());
-      } catch (IOException e) {
-        e.printStackTrace();
-      }
-    }
-  }
-
-  private static File getDataDir() {
+  private static Optional<Path> getDataDir() {
     String userHome = System.getProperty("user.home");
-    for (String path :
-        new String[] {
-          System.getenv("XDG_DATA_HOME"),
-          userHome + File.separator + ".config",
-          userHome + File.separator + "Library" + File.separator + "Application Support",
-          userHome
-        }) {
-      if (path == null) continue;
-      File file = new File(path);
-      if (file.exists() && file.isDirectory()) {
-        return file;
-      }
-    }
-    return null;
+    return Stream.of(
+            System.getenv("XDG_DATA_HOME"),
+            userHome + File.separator + ".config",
+            userHome + File.separator + "Library" + File.separator + "Application Support",
+            userHome)
+        .map(Paths::get)
+        .filter(Files::exists)
+        .filter(Files::isDirectory)
+        .findFirst();
   }
 
-  public static void main(String[] args) {
+  public static void main(String[] args) throws IOException {
     Options options = new Options();
     options.addOption("p", "no-precomp", false, "Do not use precompiled libraries");
     options.addOption("h", "help", false, "Show this message and exit");
-    CommandLineParser cl_parser = new GnuParser();
+    CommandLineParser argParser = new GnuParser();
     CommandLine result;
 
     try {
-      result = cl_parser.parse(options, args);
+      result = argParser.parse(options, args);
     } catch (ParseException e) {
       System.err.println(e.getMessage());
       System.exit(1);
@@ -143,151 +65,65 @@ public class MainREPL {
     System.out.print(Ansi.ansi().a(Ansi.Attribute.RESET).fg(Ansi.Color.WHITE).toString());
     System.out.println("Flabbergast " + Configuration.VERSION);
     System.out.print(Ansi.ansi().a(Ansi.Attribute.RESET).toString());
+    System.out.println("Type Help for a list of commands.");
 
-    ResourcePathFinder resource_finder = new ResourcePathFinder();
-    try {
-      resource_finder.prependPath(
-          new File(files.length == 1 ? new File(files[0]).getParentFile() : new File("."), "lib")
-              .getCanonicalPath());
-    } catch (IOException e) {
-      e.printStackTrace();
-    }
-    resource_finder.addDefaults();
-    ErrorCollector collector = new ConsoleCollector();
-    ConsoleTaskMaster task_master = new ConsoleTaskMaster();
-    DynamicCompiler compiler = new DynamicCompiler(collector);
-    compiler.setFinder(resource_finder);
-    task_master.addUriHandler(compiler);
+    Optional<Path> script =
+        files.length == 1 ? Optional.of(Paths.get(files[0]).toAbsolutePath()) : Optional.empty();
+
+    ResourcePathFinder resourceFinder = new ResourcePathFinder();
+    Optional.of(script.map(Path::getParent).orElse(Paths.get(".")).resolve("lib"))
+        .filter(Files::exists)
+        .filter(Files::isDirectory)
+        .ifPresent(resourceFinder::add);
+    resourceFinder.addDefaults();
+    ConsoleTaskMaster taskMaster =
+        new ConsoleTaskMaster() {
+
+          @Override
+          protected void print(String str) {
+            System.err.println(str);
+          }
+
+          @Override
+          protected void println(String str) {
+            System.err.print(str);
+          }
+        };
+    DynamicCompiler dynamicCompiler =
+        new DynamicCompiler(SourceFormat.FLABBERGAST, ErrorCollector.toStandardError());
+    dynamicCompiler.setFinder(resourceFinder);
+    taskMaster.addUriHandler(dynamicCompiler);
     EnumSet<LoadRule> rules = EnumSet.of(LoadRule.INTERACTIVE);
     if (result.hasOption('p')) {
       rules.add(LoadRule.PRECOMPILED);
     }
-    task_master.addAllUriHandlers(resource_finder, rules);
-    final Ptr<Frame> root = new Ptr<Frame>();
-    try {
-      if (files.length == 1) {
-        Parser parser = Parser.open(files[0]);
-        Class<? extends Future> run_type =
-            parser.parseFile(collector, compiler.getCompilationUnit(), "Printer");
-        if (run_type != null) {
-          Future computation = run_type.getConstructor(TaskMaster.class).newInstance(task_master);
-          computation.listen(
-              new ConsumeResult() {
+    taskMaster.addAllUriHandlers(resourceFinder, rules);
+    Ptr<Frame> root = new Ptr<>(InteractiveState.EMPTY_ROOT);
+    if (files.length == 1) {
+      Instantiator instantiator =
+          new Instantiator(
+              ErrorCollector.toStandardError(),
+              taskMaster,
+              new AcceptOrFail() {
 
                 @Override
-                public void consume(Object result) {
-                  root.set((Frame) result);
+                public void accept(Frame value) {
+                  root.set(value);
                 }
-              });
-          computation.slot();
-          task_master.run();
-        }
-      }
-    } catch (Exception e) {
-      System.err.println(e.getMessage());
-      e.printStackTrace();
-    }
-    if (root.get() == null) {
-      root.set(new MutableFrame(task_master, new NativeSourceReference("REPL"), null, null));
-    }
-    CurrentFrame current = new CurrentFrame(root.get());
 
-    try {
-      FileHistory history = new FileHistory(new File(getDataDir(), "flabbergast.history"));
-      ConsoleReader reader = new ConsoleReader();
-      reader.addCompleter(
-          new StringsCompleter(
-              "args",
-              "value",
-              "Append",
-              "Bool",
-              "By",
-              "Container",
-              "Drop",
-              "Each",
-              "Else",
-              "Enforce",
-              "Error",
-              "False",
-              "Finite",
-              "Float",
-              "FloatMax",
-              "FloatMin",
-              "For",
-              "Frame",
-              "From",
-              "GenerateId",
-              "Id",
-              "If",
-              "In",
-              "Infinity",
-              "Int",
-              "IntMax",
-              "IntMin",
-              "Is",
-              "Length",
-              "Let",
-              "Lookup",
-              "NaN",
-              "Name",
-              "Now",
-              "Null",
-              "Order",
-              "Ordinal",
-              "Reduce",
-              "Required",
-              "Reverse",
-              "Select",
-              "Str",
-              "Template",
-              "Then",
-              "This",
-              "Through",
-              "To",
-              "True",
-              "Used",
-              "Where",
-              "With"));
-      reader.setPrompt("‽ ");
-      reader.setHistory(history);
-      reader.setHistoryEnabled(true);
-      reader.setPaginationEnabled(true);
-      reader.setExpandEvents(false);
-      String line;
-      int id = 0;
-      KeepRunning keep_running = new KeepRunning();
-      while (keep_running.allowed() && (line = reader.readLine()) != null) {
-        if (line.trim().isEmpty()) {
-          continue;
-        }
-        Parser parser = new Parser("<console>", line);
-        PrintToConsole printer = new PrintToConsole(reader);
-        RawPrint raw_printer = new RawPrint(reader);
-        Class<? extends Future> run_type =
-            parser.parseRepl(
-                collector, compiler.getCompilationUnit(), "flabbergast/interactive/Line" + (id++));
-        if (run_type != null) {
-          Future computation =
-              run_type
-                  .getConstructor(
-                      TaskMaster.class,
-                      Frame.class,
-                      Frame.class,
-                      ConsumeResult.class,
-                      ConsumeResult.class,
-                      ConsumeResult.class)
-                  .newInstance(
-                      task_master, root.get(), current.get(), current, printer, raw_printer);
-          computation.listen(keep_running);
-          computation.slot();
-          task_master.run();
-          printer.print();
-          task_master.reportCircularEvaluation();
-        }
-      }
-      history.flush();
-    } catch (Exception e) {
-      e.printStackTrace();
+                @Override
+                protected void fail(String type) {
+                  System.err.printf("Expected file to be of type Frame, but got %s.\n", type);
+                }
+              }.toConsumer());
+      dynamicCompiler.getCompiler().compile(Paths.get(files[0])).collect(instantiator);
+      taskMaster.run();
     }
+
+    FileHistory history =
+        new FileHistory(getDataDir().get().resolve("flabbergast.history").toFile());
+    ConsoleInteractiveState state = new ConsoleInteractiveState(root.get(), history);
+    while (state.showPrompt()) ;
+    history.flush();
   }
 }

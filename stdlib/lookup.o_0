@@ -1,0 +1,16 @@
+Introduction{{{Lookup handlers and tools for manipulating lookup handlers.}}}
+
+{{{Lookups up all possible values and returns them as a list. Normally, \{x.y.z}, will find the first frame \{x} that contains \{y} that contains \{z}. With this lookup handler, lookup will continue to find all frames \{x} that contain \{y} that contain \{z} and a list of all values will be returned. If no frames are found, an empty list is returned.}}}
+all_handler : From interop:lookup/all Enforce LookupHandler
+
+{{{Attempts a lookup using contextual lookup, but discards any null values.}}}
+coalescing_handler : From interop:lookup/coalescing Enforce LookupHandler
+
+{{{Attempts a lookup using contextual lookup, but returns true if the value exists and false if it does not.}}}
+existence_handler : From interop:lookup/existence Enforce LookupHandler
+
+{{{Attempts a lookup using contextual lookup, but returns a list of all the identifiers of the frames to the matching value rather than the value itself.}}}
+identifier_handler : From interop:lookup/identifier Enforce LookupHandler
+
+{{{Lookups up all possible values, which must be frames, and returns a composite of the attributes in lookup order. Effectively, if \{x.y} is looked up, it returns a frame containing \{x.y.a}, \{x.y.b}, ... for all possible names that exist and create a single frame with the result.}}}
+merge_handler : From interop:lookup/merge Enforce LookupHandler

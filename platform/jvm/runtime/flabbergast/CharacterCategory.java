@@ -2,12 +2,13 @@ package flabbergast;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.stream.Collectors;
 
-public class CharacterCategory extends BaseMapFunctionInterop<String, Frame> {
+class CharacterCategory extends BaseMapFunctionInterop<String, Frame> {
   private static final Map<Byte, String> categories;
 
   static {
-    categories = new HashMap<Byte, String>();
+    categories = new HashMap<>();
     categories.put(Character.LOWERCASE_LETTER, "letter_lower");
     categories.put(Character.MODIFIER_LETTER, "letter_modifier");
     categories.put(Character.OTHER_LETTER, "letter_other");
@@ -40,36 +41,33 @@ public class CharacterCategory extends BaseMapFunctionInterop<String, Frame> {
     categories.put(Character.OTHER_SYMBOL, "symbol_other");
   }
 
-  private Map<Byte, Object> mappings = new HashMap<Byte, Object>();
+  private final Map<Byte, Any> mappings = new HashMap<>();
 
-  public CharacterCategory(
-      TaskMaster task_master,
-      SourceReference source_reference,
-      Context context,
-      Frame self,
-      Frame container) {
-    super(Frame.class, String.class, task_master, source_reference, context, self, container);
+  CharacterCategory(
+      TaskMaster taskMaster, SourceReference sourceReference, Context context, Frame self) {
+    super(Any::of, asString(false), taskMaster, sourceReference, context, self);
   }
 
   @Override
-  protected Frame computeResult(String input) throws Exception {
-    MutableFrame frame =
-        new MutableFrame(
-            task_master, source_reference,
-            context, container);
-    for (int it = 0; it < input.length(); it++) {
-      frame.set(it + 1, mappings.get((byte) Character.getType(input.charAt(it))));
-    }
-    return frame;
+  protected Frame computeResult(String input) {
+    return Frame.create(
+        taskMaster,
+        sourceReference,
+        context,
+        self,
+        new ArrayValueBuilder(
+            input
+                .codePoints()
+                .map(Character::getType)
+                .mapToObj(type -> mappings.get((byte) type))
+                .collect(Collectors.toList())));
   }
 
   @Override
   protected void setupExtra() {
-    for (Map.Entry<Byte, String> entry : categories.entrySet()) {
+    for (final Map.Entry<Byte, String> entry : categories.entrySet()) {
       final Byte key = entry.getKey();
-      Sink<Object> mapping_lookup = find(Object.class, x -> mappings.put(key, x));
-      mapping_lookup.allowDefault(false, null);
-      mapping_lookup.lookup(entry.getValue());
+      find(x -> mappings.put(key, x), entry.getValue());
     }
   }
 }

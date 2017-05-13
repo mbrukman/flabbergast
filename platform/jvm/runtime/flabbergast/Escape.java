@@ -5,11 +5,14 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
+import java.util.function.IntFunction;
 import java.util.function.IntUnaryOperator;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
-public class Escape extends BaseMapFunctionInterop<String, String> {
+class Escape extends BaseMapFunctionInterop<String, String> {
 
-  enum CharFormat {
+  private enum CharFormat {
     DECIMAL {
       @Override
       public String get(int bits) {
@@ -50,31 +53,24 @@ public class Escape extends BaseMapFunctionInterop<String, String> {
     public abstract String get(int bits);
   }
 
-  interface DefaultConsumer extends BiConsumer<StringBuilder, Integer> {
-    public boolean matches(int codepoint);
+  private interface DefaultConsumer extends IntFunction<Stream<String>> {
+    boolean matches(int codepoint);
   }
 
-  static class Range implements DefaultConsumer, Comparable<Range> {
+  static class Range implements DefaultConsumer {
     private final int end;
     private final List<RangeAction> replacement;
     private final int start;
 
-    public Range(int start, int end, List<RangeAction> replacement) {
+    Range(int start, int end, List<RangeAction> replacement) {
       this.start = start;
       this.end = end;
       this.replacement = replacement;
     }
 
     @Override
-    public void accept(StringBuilder buffer, Integer codepoint) {
-      for (RangeAction action : replacement) {
-        action.accept(buffer, codepoint);
-      }
-    }
-
-    @Override
-    public int compareTo(Range r) {
-      return start - r.start;
+    public Stream<String> apply(int codepoint) {
+      return replacement.stream().map(action -> action.apply(codepoint));
     }
 
     @Override
@@ -83,13 +79,13 @@ public class Escape extends BaseMapFunctionInterop<String, String> {
     }
   }
 
-  public interface RangeAction extends BiConsumer<StringBuilder, Integer> {}
+  interface RangeAction extends IntFunction<String> {}
 
   private static final DefaultConsumer DEFAULT =
       new DefaultConsumer() {
         @Override
-        public void accept(StringBuilder builder, Integer codepoint) {
-          builder.appendCodePoint(codepoint);
+        public Stream<String> apply(int codepoint) {
+          return Stream.of(new String(new int[] {codepoint}, 0, 1));
         }
 
         @Override
@@ -104,38 +100,36 @@ public class Escape extends BaseMapFunctionInterop<String, String> {
       int index,
       CharFormat format,
       IntUnaryOperator encode) {
-    String path = "utils/str/escape/utf" + bits + "/" + index + "/" + format.name().toLowerCase();
-    String name = "utf" + bits + "_" + index + "_" + format.name().toLowerCase();
-    RangeAction action =
-        (buffer, codepoint) ->
-            buffer.append(String.format(format.get(bits), encode.applyAsInt(codepoint)));
+    final String interopUrl =
+        "utils/str/escape/utf" + bits + "/" + index + "/" + format.name().toLowerCase();
+    final String name = "utf" + bits + "_" + index + "_" + format.name().toLowerCase();
+    final RangeAction action =
+        codepoint -> String.format(format.get(bits), encode.applyAsInt(codepoint));
 
-    consumer.accept(path, ReflectedFrame.create(name, action, Collections.emptyMap()));
+    consumer.accept(interopUrl, MarshalledFrame.create(name, "<escape>", action, Stream.empty()));
   }
 
-  public static ComputeValue create(Map<Integer, String> single_substitutions, List<Range> ranges) {
-    return (task_master, source_reference, context, self, container) ->
-        new Escape(
-            single_substitutions, ranges, task_master, source_reference, context, self, container);
+  static Definition create(Map<Integer, String> singleSubstitutions, List<Range> ranges) {
+    Collections.sort(ranges, (a, b) -> a.start - b.start);
+    return (taskMaster, sourceReference, context, self) ->
+        new Escape(singleSubstitutions, ranges, taskMaster, sourceReference, context, self);
   }
 
-  public static void createUnicodeActions(BiConsumer<String, Frame> consumer) {
-    for (CharFormat format : CharFormat.values()) {
+  static void createUnicodeActions(BiConsumer<String, Frame> consumer) {
+    for (final CharFormat format : CharFormat.values()) {
       add(consumer, 32, 0, format, IntUnaryOperator.identity());
       // http://scripts.sil.org/cms/scripts/page.php?site_id=nrsi&id=iws-appendixa
-      add(consumer, 16, 0, format, c -> ((c < 65536) ? c : ((c - 65536) % 1024 + 56320) % 65536));
-      add(consumer, 16, 1, format, c -> (c < 65536) ? 0 : ((c - 65536) / 1024 + 55296) % 65536);
+      add(consumer, 16, 0, format, c -> (c < 65536 ? c : ((c - 65536) % 1024 + 56320) % 65536));
+      add(consumer, 16, 1, format, c -> c < 65536 ? 0 : ((c - 65536) / 1024 + 55296) % 65536);
       add(
           consumer,
           8,
           0,
           format,
           c ->
-              ((c <= 127)
+              (c <= 127
                       ? c
-                      : ((c <= 2047)
-                          ? (c / 64 + 192)
-                          : ((c <= 65535) ? (c / 4096 + 224) : (c / 262144 + 240))))
+                      : c <= 2047 ? c / 64 + 192 : c <= 65535 ? c / 4096 + 224 : c / 262144 + 240)
                   % 256);
       add(
           consumer,
@@ -143,50 +137,56 @@ public class Escape extends BaseMapFunctionInterop<String, String> {
           1,
           format,
           c ->
-              ((c <= 127)
+              (c <= 127
                       ? 0
-                      : ((c <= 2047)
-                          ? (c % 64 + 128)
-                          : ((c <= 65535) ? ((c / 64) % 64 + 128) : ((c % 262144) * 4096 + 128))))
+                      : c <= 2047
+                          ? c % 64 + 128
+                          : c <= 65535 ? c / 64 % 64 + 128 : c % 262144 * 4096 + 128)
                   % 256);
       add(
           consumer,
           8,
           2,
           format,
-          c -> ((c <= 2047) ? 0 : ((c <= 65535) ? (c % 64 + 128) : ((c % 4096) / 64 + 128))) % 256);
-      add(consumer, 8, 3, format, c -> ((c <= 65535) ? 0 : (c % 64 + 128)) % 256);
+          c -> (c <= 2047 ? 0 : c <= 65535 ? c % 64 + 128 : c % 4096 / 64 + 128) % 256);
+      add(consumer, 8, 3, format, c -> (c <= 65535 ? 0 : c % 64 + 128) % 256);
     }
   }
 
   private final List<DefaultConsumer> ranges = new ArrayList<>();
-  private final Map<Integer, String> single_substitutions;
+  private final Map<Integer, String> singleSubstitutions;
 
-  public Escape(
-      Map<Integer, String> single_substitutions,
+  private Escape(
+      Map<Integer, String> singleSubstitutions,
       List<Range> ranges,
-      TaskMaster task_master,
-      SourceReference source_reference,
+      TaskMaster taskmaster,
+      SourceReference sourceReference,
       Context context,
-      Frame self,
-      Frame container) {
-    super(String.class, String.class, task_master, source_reference, context, self, container);
-    this.single_substitutions = single_substitutions;
+      Frame self) {
+    super(Any::of, asString(false), taskmaster, sourceReference, context, self);
+    this.singleSubstitutions = singleSubstitutions;
     this.ranges.addAll(ranges);
   }
 
   @Override
   protected String computeResult(String input) {
-    StringBuilder buffer = new StringBuilder();
-    for (int it = 0; it < input.length(); it = input.offsetByCodePoints(it, 1)) {
-      int c = input.codePointAt(it);
-      if (single_substitutions.containsKey(c)) {
-        buffer.append(single_substitutions.get(c));
-      } else {
-        ranges.stream().filter(r -> r.matches(c)).findFirst().orElse(DEFAULT).accept(buffer, c);
-      }
-    }
-    return buffer.toString();
+    return input
+        .codePoints()
+        .boxed()
+        .flatMap(
+            c -> {
+              if (singleSubstitutions.containsKey(c)) {
+                return Stream.of(singleSubstitutions.get(c));
+              } else {
+                return ranges
+                    .stream()
+                    .filter(r -> r.matches(c))
+                    .findFirst()
+                    .orElse(DEFAULT)
+                    .apply(c);
+              }
+            })
+        .collect(Collectors.joining());
   }
 
   @Override

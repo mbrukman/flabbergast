@@ -1,6 +1,6 @@
 '\" t
 .\" Authors: Andre Masella
-.TH flabbergast 7 "Jan 2015" "1.0" "MISCELLANEOUS"
+.TH flabbergast 7 "Oct 2017" "1.0" "MISCELLANEOUS"
 .SH NAME
 flabbergast_language \- The definition of the Flabbergast language
 .ds < \v'0.4m'\x'\\n(0x=0*0.2m'\s-3
@@ -42,14 +42,17 @@ a mapping from identifiers to values, which are of the types mentioned in this s
 Int
 platform-specific integral number
 .TP
+LookupHandler
+an algorithm for doing lookup
+.TP
+Unit
+the type of the \fBNull\fR value.
+.TP
 Str
 a Unicode text string
 .TP
 Template
 a mapping from from identifiers to expressions. No duplicate identifiers are permitted (i.e., the identifier space is a set).
-.TP
-Unit
-the type of the \fBNull\fR value.
 
 .SH GRAMMAR AND SEMANTICS
 Line-terminated comments may start with \fB#\fR. The grammar is a PEG, so assume that low precedence rules are shown first.
@@ -98,7 +101,7 @@ Bind a new name
 .SEM (t, ...) ⊢ \fBLet\fR name:I \fB:\fR nameexpr:E\*<0\*> (\fB,\fR name:I \fB:\fR nameexpr:E\*<0\*> )* \fBIn\fR expr:E ↓ v
 ∀ nameexpr : Γ ⊢ nameexpr ↓ v\*<nameexpr\*>,
 
-(< u; (t, ...); ∀ name, nameexpr : nname → v\*<nameexpr\*> >*, t, ...) ⊢ expr ↓ v
+(< u; (t, ...); ∀ name, nameexpr : name → v\*<nameexpr\*> >*, t, ...) ⊢ expr ↓ v
 .SEME
 
 .SS EXPRESSION SYNTAX (E) – FRICASSÉE
@@ -106,21 +109,33 @@ Bind a new name
 Fricassée a frame (a.k.a. \fBFor\fR expressions)
 
 .SEM Γ ⊢ \fBFor\fR s:FS r:FR ↓ v
-Γ ⊢ s ↓ W = ( < u\*<1\*>; Γ\*<1\*>; k\*<x\*> → v\*<x1\*>, k\*<y\*> → v\*<y1\*>, ... >, < u\*<2\*>; Γ\*<2\*>; k\*<x\*> → v\*<x2\*>, k\*<y\*> → v\*<y2\*>, ... >, ... ),
+Γ ⊢ s ↓ W,
 
 Γ; W ⊢ r ↓ v
 .SEME
-.SEM Γ ⊢ \fBFor\fR s:FS \fBWhere\fR expr:E\*<0\*> r:FR ↓ v
-Γ ⊢ s ↓ W,
 
-∀ w\*<i\*> ∈ W : (w\*<i\*>*, t, ...) ⊢ expr ↓ v\*<i\*> :: Bool,
+This operator allows iterating over the values in a frame to produce some new result. The syntax is handled in two pieces: a source component (FS) that creates a list of contexts, each being an environment in which the relevant values from the input are defined (i.e., it is a list of whitnesses), a result component (FR) that evaluates expressions using the witnesses and produces a result.
 
-X = { w\*<i\*> ∈ W | v\*<i\*> = True }
+Some sources may be chained together to manipulate the list of contexts. There are two kinds of result components: order-senstive (S) and order-insensitive (I). Order insensitive results will not depend on the order in which contexts are provided while order sensitive ones will produce different output depending on order. All sources implicity produce some order, but there are three kinds: independent (=), where each context is treated in isolation; implicitly order-generating (G), where there is an order to the contexts, but it was not explicity defined by the user; and user-defined order-generating (U), where the order is implied by the user. Not all chains of sources are valid. Specifically, any chain that matches U=*I is invalid.
 
-Γ; X ⊢ r ↓ v
-.SEME
+For an example, consider:
 
-This operator allows iterating over the values in a frame to produce some new result. The syntax is handled in two pieces: a selection component (FS) that creates a list of frames, each being an environment in which the relevant values from the input are defined (i.e., it is a list of whitnesses), a results component that evaluates expressions using the witnesses and produces a result. Optionally, a filter expression can be provided to exclude certain witnesses.
+\fBFor x : xs, n : Name Order By x Enforce Int Select n : x\fR [GUI]
+
+Here, the \fBOrder By\fR operation's rearrangement is ignored by \fBSelect\fR. However, this is valid:
+
+\fBFor x : xs, n : Name Order By x Enforce Int Reduce x * a With a : 1\fR [GUS]
+
+Since the \fBReduce\fR result is order-sensitive. Some intermediate operations affect this behaviour. The following is invalid:
+
+\fBFor x : xs, n : Name Order By x Enforce Int Where x > 5 Select n : x\fR [GU=I]
+
+since the additional \fBWhere\fR clause does not examine the order. However, the following is valid:
+
+\fBFor x : xs, n : Name Order By x Enforce Int Skip x < 5 Select n : x\fR [GUGI]
+
+since \fBSkip\fR examines the order produced by \fBOrder By\fR.
+
 
 .SS EXPRESSION SYNTAX (E) – CONDITITONAL
 .TP
@@ -540,13 +555,25 @@ Binary data length
 Γ ⊢ expr ↓ [[x\*<1\*>x\*<2\*>...x\*<n\*>]] :: Bin
 .SEME
 
-.SS EXPRESSION SYNTAX (E) – REMOTE LOOKUP
+.SS EXPRESSION SYNTAX (E) – CUSTOM LOOKUP
 .TP
-Remote contextual lookup.
-.SEM Γ ⊢ \fBLookup\fR name:I name:(\fB.\fRI)* \fBIn\fR expr:E ↓ v
-Γ ⊢ expr ↓ < u; Δ; ... >,
+Perform custom lookup.
+.SEM Γ ⊢ \fBLookup\fR part:LN part:(\fB.\fRLN)* \fBUsing\fR lookup:E\*<0\*> source:LS ↓ v
+Γ ⊢ lookup ↓ h :: LookupHandler,
 
-Δ ⊢ name ↓ v
+Γ ⊢ part\*<i\*> ↓ name\*<i\*>,
+
+Γ ⊢ source ↓ Δ,
+
+Δ ⊢ h(name\*<1\*>, ...) ↓ v
+.SEME
+
+The algorithm by which the handler reduces names to a value is implementation defined. The \fBContextual\fR handler is defined in this document.
+
+.TP
+Perform contextual lookup in a custom environment.
+.SEM Γ ⊢ \fBLookup\fR part:LN part:(\fB.\fRLN)* source:LS ↓ v
+Γ ⊢ \fBLookup\fR part \fBUsing Contextual\fR source ↓ v
 .SEME
 
 .SS EXPRESSION SYNTAX (E) – INSTANTIATION
@@ -672,96 +699,6 @@ Extracts the unique identifier from a frame. The implementation makes no guarant
 
 This expression is meant to have a similar function to LISP's \fIgensym\fR or XPath's \fIgenerate-id\fR. It is intended to allow generating unique, though unhelpfully opaque, identifiers in generated code. For instance, to generate temporary variable names when generating the compiler. The \fBId\fR function is similar Clojure's auto-\fIgensym\fR syntax; with the scope of a frame, the same identifier is available.
 
-.TP
-Perform type-directed lookup
-
-.SEM Γ ⊢ \fBTypeOf\fR expr:E\*<+\*> ↓ t
-Γ ⊢ expr ↓ v :: Bin,
-
-Γ ⊢ \fBbin\fR ↓ t
-.SEME
-
-.SEM Γ ⊢ \fBTypeOf\fR expr:E\*<+\*> ↓ t
-Γ ⊢ expr ↓ v :: Bool,
-
-Γ ⊢ \fBbool\fR ↓ t
-.SEME
-
-.SEM Γ ⊢ \fBTypeOf\fR expr:E\*<+\*> ↓ t
-Γ ⊢ expr ↓ v :: Float,
-
-Γ ⊢ \fBfloat\fR ↓ t
-.SEME
-
-.SEM Γ ⊢ \fBTypeOf\fR expr:E\*<+\*> ↓ t
-Γ ⊢ expr ↓ v :: Frame,
-
-Γ ⊢ \fBframe\fR ↓ t
-.SEME
-
-.SEM Γ ⊢ \fBTypeOf\fR expr:E\*<+\*> ↓ t
-Γ ⊢ expr ↓ v :: Int,
-
-Γ ⊢ \fBint\fR ↓ t
-.SEME
-
-.SEM Γ ⊢ \fBTypeOf\fR expr:E\*<+\*> ↓ t
-Γ ⊢ expr ↓ v :: Unit,
-
-Γ ⊢ \fBnull\fR ↓ t
-.SEME
-
-.SEM Γ ⊢ \fBTypeOf\fR expr:E\*<+\*> ↓ t
-Γ ⊢ expr ↓ v :: Template,
-
-Γ ⊢ \fBtemplate\fR ↓ t
-.SEME
-
-.TP
-Perform type-directed lookup with a prefix
-
-.SEM Γ ⊢ \fBTypeOf\fR expr:E\*<+\*> \fBWith\fR name:I name:(\fB.\fRI)* ↓ t
-Γ ⊢ expr ↓ v :: Bin,
-
-Γ ⊢  (name\fB.\fR)+ \fBbin\fR ↓ t
-.SEME
-
-.SEM Γ ⊢ \fBTypeOf\fR expr:E\*<+\*> \fBWith\fR name:I name:(\fB.\fRI)* ↓ t
-Γ ⊢ expr ↓ v :: Bool,
-
-Γ ⊢ (name\fB.\fR)+ \fBbool\fR ↓ t
-.SEME
-
-.SEM Γ ⊢ \fBTypeOf\fR expr:E\*<+\*> \fBWith\fR name:I name:(\fB.\fRI)* ↓ t
-Γ ⊢ expr ↓ v :: Float,
-
-Γ ⊢ (name\fB.\fR)+ \fBfloat\fR ↓ t
-.SEME
-
-.SEM Γ ⊢ \fBTypeOf\fR expr:E\*<+\*> \fBWith\fR name:I name:(\fB.\fRI)* ↓ t
-Γ ⊢ expr ↓ v :: Frame,
-
-Γ ⊢ (name\fB.\fR)+ \fBframe\fR ↓ t
-.SEME
-
-.SEM Γ ⊢ \fBTypeOf\fR expr:E\*<+\*> \fBWith\fR name:I name:(\fB.\fRI)* ↓ t
-Γ ⊢ expr ↓ v :: Int,
-
-Γ ⊢ (name\fB.\fR)+ \fBint\fR ↓ t
-.SEME
-
-.SEM Γ ⊢ \fBTypeOf\fR expr:E\*<+\*> \fBWith\fR name:I name:(\fB.\fRI)* ↓ t
-Γ ⊢ expr ↓ v :: Unit,
-
-Γ ⊢ (name\fB.\fR)+ \fBnull\fR ↓ t
-.SEME
-
-.SEM Γ ⊢ \fBTypeOf\fR expr:E\*<+\*> \fBWith\fR name:I name:(\fB.\fRI)* ↓ t
-Γ ⊢ expr ↓ v :: Template,
-
-Γ ⊢ (name\fB.\fR)+ \fBtemplate\fR ↓ t
-.SEME
-
 .SS EXPRESSION SYNTAX (E) – FUNCTION-LIKE TEMPLATE INSTANTIATION
 
 .TP
@@ -803,18 +740,8 @@ The interpreter may process all \fBFrom\fR expressions first, outside of normal 
 
 .TP
 Contextual lookup
-.SEM (t, s, ...) ⊢ names:N names:(\fB.\fR N)* ↓ v
-names ⊢ t ↓ v
-.SEME
-.SEM (t, s, ...) ⊢ names:N names:(\fB.\fR N)* ↓ v
-(s, ...) ⊢ names ↓ v
-.SEME
-.SEM (n) ⊢ t :: Frame ↓ v
-< n → v > ∈ t
-.SEME
-.SEM (n, m, ...) ⊢ t :: Frame ↓ v
-< n → s > ∈ t
-(m, ...) ⊢ s ↓ v
+.SEM Γ ⊢ names:N names:(\fB.\fR N)* ↓ v
+Γ ⊢ CONTEXTUAL(names) ↓ v
 .SEME
 
 This does a dynamically-scoped lookup. It searches all the existing frame contexts for a matching name. If the value in any frame is not a frame, this is not an error. Any frame that does not match the complete path of names is simply ignored. It is an error if there are no more contexts in which to search and there are still unsatisfied names.
@@ -823,10 +750,10 @@ It is not an error if any value is not defined so long as it is not the first it
 
 .TP
 Perform direct lookup
-.SEM Γ ⊢ expr:E\*<+\*> \fB.\fR name:I other:(\fB.\fR I)* ↓ u
-Γ ⊢ expr ↓ < u; Δ; name → v, ... >,
+.SEM Γ ⊢ expr:E\*<+\*> \fB.\fR names:I names:(\fB.\fR I)* ↓ u
+Γ ⊢ expr ↓ f :: Frame,
 
-Γ ⊢ v other:I ↓ u
+(f) ⊢ CONTEXTUAL(names) ↓ u
 .SEME
 Get values from inside of a frame. Do not perform contextual lookup.
 
@@ -853,6 +780,13 @@ Identifier-like string
 .SEME
 
 Produce a string that is parsed as an identifier, so it is necessarily a valid identifier.
+
+.TP
+Get contextual lookup handler
+.SEM (a, ...) ⊢ \fBContextual\fR ↓ CONTEXTUAL :: LookupHandler
+.SEME
+
+Return the lookup handler that implements contextual lookup as defined in CONTEXTUAL LOOKUP HANDLER.
 
 .TP
 Access containing frame
@@ -1070,17 +1004,21 @@ Embedded expression
 .SH FRAME PARTS
 .TP
 Frame attribute definition (A)
-.SEM Γ ⊢ name:I \fB:\fR expr:E ↓ name → expr
+.SEM Γ ⊢ name:DI \fB:\fR expr:E ↓ n → expr
+Γ ⊢ name ↓ n
 .SEME
-.SEM Γ; R ⊢ name:I \fB:\fR expr:E ↓ name → expr
+.SEM Γ; R ⊢ name:DI \fB:\fR expr:E ↓ n → expr
+Γ ⊢ name ↓ n
 .SEME
 Define a new attribute in a frame, equal to some expression.
 
 .TP
 In a template, define an attribute that must be overridden. (X)
-.SEM Γ ⊢ name:I \fB: Required\fR ↓ name → \fBError \(dqAttribute \fRname\fB must be overridden.\(dq\fR
+.SEM Γ ⊢ name:DI \fB: Required\fR ↓ n → \fBError \(dqAttribute \fRn\fB must be overridden.\(dq\fR
+Γ ⊢ name ↓ n
 .SEME
-.SEM Γ; R ⊢ name:I \fB: Required\fR ↓ name → \fBError \(dqAttribute \fRname\fB must be overridden.\(dq\fR
+.SEM Γ; R ⊢ name:DI \fB: Required\fR ↓ n → \fBError \(dqAttribute \fRn\fB must be overridden.\(dq\fR
+Γ ⊢ name ↓ n
 .SEME
 
 Create an attribute whose value is an error requiring an override.
@@ -1103,38 +1041,98 @@ This does not do anything. It is intended to convey that an attribute should be 
 
 .TP
 Override sub-template definition. (O)
-.SEM Γ; R ⊢ name:I \fB+:\fR \fB{\fR a:(A / O / X)+ \fB}\fR ↓ name → \fBTemplate \fR R \fB{\fR a \fB}\fR
+.SEM Γ; R ⊢ name:DI \fB+:\fR \fB{\fR a:(A / O / X)+ \fB}\fR ↓ name → \fBTemplate \fR R \fB{\fR a \fB}\fR
+Γ ⊢ name ↓ n
 .SEME
 
 The name \fIoriginal\fR must be selected to be entirely unique in the program scope.
 
 .TP
 Redefine an attribute. (O)
-.SEM Γ; R ⊢ name:I \fB+\fR original:I \fB:\fR expr:E ↓ name → \fBLet\fR original \fB:\fR R \fBIn\fR expr
+.SEM Γ; R ⊢ name:DI \fB+\fR original:I \fB:\fR expr:E ↓ name → \fBLet\fR original \fB:\fR R \fBIn\fR expr
+Γ ⊢ name ↓ n
 .SEME
 
 .TP
 Remove definition for an attribute. (O)
-.SEM Γ; R ⊢ name \fB: Drop\fR ↓
+.SEM Γ; R ⊢ name:I \fB: Drop\fR ↓
 .SEME
 
 The name must be present in the existing frame or an error occurs.
 
 .TP
 Define an attribute that is eagerly evaluated instead of lazily evaluated. (G)
-.SEM Γ ⊢ name:I \fB: Now\fR expr:E ↓ name → C
+.SEM Γ ⊢ name:DI \fB: Now\fR expr:E ↓ n → C
+Γ ⊢ name ↓ n
+
 Γ ⊢ expr ↓ v,
 
 ∀ Δ : Δ ⊢ C ↓ v
 .SEME
-.SEM Γ; R ⊢ name:I \fB: Now\fR expr:E ↓ name → C
+.SEM Γ; R ⊢ name:DI \fB: Now\fR expr:E ↓ n → C
+Γ ⊢ name ↓ n
+
 Γ ⊢ expr ↓ v,
 
 ∀ Δ : Δ ⊢ C ↓ v
 .SEME
 
+.SH ATTRIBUTE DEFINITION NAMES (DI)
+Fixed identifier
+.SEM Γ ⊢ name:I ↓ n
+.SEME
+
+.SEM Γ ⊢ \fBAttribute(\fR name:E\*<0\*> \fB)\fR ↓ n
+Γ ⊢ name ↓ n :: Str,
+
+IDENTIFIER(n)
+.SEME
+
+.SEM Γ ⊢ \fBAttribute(\fR name:E\*<0\*> \fB)\fR ↓ ORD(v)
+Γ ⊢ name ↓ v :: Int
+.SEME
+
+.TP
+Type-directed name
+.SEM Γ ⊢ \fBTypeOf(\fR expr:E\*<0\*> \fB)\fR ↓ bin
+Γ ⊢ expr ↓ v :: Bin
+.SEME
+
+.SEM Γ ⊢ \fBTypeOf(\fR expr:E\*<0\*> \fB)\fR ↓ bool
+Γ ⊢ expr ↓ v :: Bool
+.SEME
+
+.SEM Γ ⊢ \fBTypeOf(\fR expr:E\*<0\*> \fB)\fR ↓ float
+Γ ⊢ expr ↓ v :: Float
+.SEME
+
+.SEM Γ ⊢ \fBTypeOf(\fR expr:E\*<0\*> \fB)\fR ↓ frame
+Γ ⊢ expr ↓ v :: Frame
+.SEME
+
+.SEM Γ ⊢ \fBTypeOf(\fR expr:E\*<0\*> \fB)\fR ↓ int
+Γ ⊢ expr ↓ v :: Int
+.SEME
+
+.SEM Γ ⊢ \fBTypeOf(\fR expr:E\*<0\*> \fB)\fR ↓ lookup_handler
+Γ ⊢ expr ↓ v :: LookupHandler
+.SEME
+
+.SEM Γ ⊢ \fBTypeOf(\fR expr:E\*<0\*> \fB)\fR ↓ null
+Γ ⊢ expr ↓ v :: Unit
+.SEME
+
+.SEM Γ ⊢ \fBTypeOf(\fR expr:E\*<0\*> \fB)\fR ↓ str
+Γ ⊢ expr ↓ v :: Str
+.SEME
+
+.SEM Γ ⊢ \fBTypeOf(\fR expr:E\*<0\*>) ↓ template
+Γ ⊢ expr ↓ v :: Template
+.SEME
 
 .SH TYPE DEFINITIONS (T)
+.SEM \fBBin\fR ↓ Bin
+.SEME
 .SEM \fBBool\fR ↓ Bool
 .SEME
 .SEM \fBFloat\fR ↓ Float
@@ -1149,72 +1147,14 @@ Define an attribute that is eagerly evaluated instead of lazily evaluated. (G)
 .SEME
 
 
-.SH FRICASSÉE SELECTORS (FS) – ACCUMULATING
+.SH FRICASSÉE SOURCE (FS)
 
 .TP
-Binding selector
-.SEM Γ ⊢ base:FS\*<+\*> \fBAccumulate\fR expr:E\*<0\*> \fBWith\fR name:I \fB:\fR initial:E\*<0\*> ↓ < c; Γ; k\*<i\*> →  w\*<i\*> >
-(t, ...) = Γ,
-
-Γ ⊢ base ↓ < u; Δ; k\*<i\*> →  v\*<i\*> >,
-
-Γ ⊢ initial ↓ wv\*<-1,name\*>,
-
-v\*<i\*> = < u\*<i\*>; Δ\*<i\*>; vk\*<ij\*> → vv\*<ij\*> >,
-
-w\*<i\*> = < u\*<i\*>; Δ\*<i\*>; wk\*<ij\*> → wv\*<ij\*> >,
-
-∀ i : wk\*<i\*> = name ∪ vk\*<i\*>,
-
-∀ i, j = name : (< c; Γ; wv\*<i-1,j\*> >, v\*<i\*>, t, ...) ⊢  expr ↓ wv\*<ij\*>,
-
-∀ i, j ≠ name : wv\*<ij\*> = vv\*<ij\*>,
-
-Γ ⊢ \fBThis\fR ↓ c
-.SEME
-
-Bind a new value in each frame that is carried accross all frames in the iteration order.
-
-.SH FRICASSÉE SELECTORS (FS) – BINDING
-
-.TP
-Binding selector
-.SEM Γ ⊢ base:FS\*<+\*> \fBLet\fR name:I \fB:\fR nameexpr:E\*<0\*> (\fB,\fR name:I \fB:\fR nameexpr:E\*<0\*> )* ↓ < c; Γ; k\*<i\*> →  w\*<i\*> >
-(t, ...) = Γ,
-
-Γ ⊢ base ↓ < u; Δ; k\*<i\*> →  v\*<i\*> >,
-
-v\*<i\*> = < u\*<i\*>; Δ\*<i\*>; vk\*<ij\*> → vv\*<ij\*> >,
-
-w\*<i\*> = < u\*<i\*>; Δ\*<i\*>; wk\*<ij\*> → wv\*<ij\*> >,
-
-∀ i : wk\*<i\*> = name ∪ vk\*<i\*>,
-
-∀ i, j ∈ name : (v\*<i\*>, t, ...) ⊢  nameexpr ↓ wv\*<ij\*>,
-
-∀ i, j ∉  name : wv\*<ij\*> = vv\*<ij\*>,
-
-Γ ⊢ \fBThis\fR ↓ c
-.SEME
-
-Modify a list of witnesses, provided as a frame of frames, to include new entires or replace existing ones.
-
-.SH FRICASSÉE SELECTORS (FS) – TERMINAL
-
-.TP
-Pass-through selector
-.SEM Γ ⊢ \fBEach\fR input:E\*<0\*> ↓ { ∀ i :  v\*<i\*> }
-Γ ⊢ input ↓ < u; Δ; k\*<i\*> → v\*<i\*> :: Frame >
-.SEME
-
-Passes-though a list of witnesses provided as a frame of frames.
-
-.TP
-Merged attribute selector
-.SEM (t, ...) ⊢ value:I \fB:\fR input:(\fBName\fR / \fBOrdinal\fR /E\*<0\*>) (\fB,\fR value:I \fB:\fR input:(\fBName\fR / \fBOrdinal\fR /E\*<0\*>))* ↓ W
+Merged attribute selector [G]
+.SEM (t, ...) ⊢ value\*<1\*>:I \fB:\fR input\*<1\*>:(\fBName\fR / \fBOrdinal\fR / E\*<0\*>) (\fB,\fR value\*<2\*>:I \fB:\fR input\*<2\*>:(\fBName\fR / \fBOrdinal\fR / E\*<0\*>))* ↓ W
 ∀ i ∈ input:E : (t, ...) ⊢ i ↓ < u\*<i\*>; Δ\*<i\*>; kk\*<ij\*> → vv\*<ij\*> >,
 
-V(j) = ∀ i ∈ input : value\*<i\*> → vv\*<ij\*>
+V(j) = ∀ i ∈ input:value\*<i\*> → vv\*<ij\*>
 
 A(j) = ∀ i ∈ input:\fBName\fR : value\*<i\*> → j,
 
@@ -1222,80 +1162,226 @@ K = ∀ i ∈ input:E : ∪ k\*<ij\*>,
 
 O(j) = ∀ i ∈ input:\fBOrdinal\fR : value\*<i\*> → |{ k ∈ K : k\*<j\*> < j }| :: Int
 
-W = { ∀ j : w\*<j\*> = < u; (w\*<j\*>, t, ...); V(j) ∪ A(j) ∪ O(j) > }
+W = { ∀ j : ( < u; (w\*<j\*>, t, ...); V(j) ∪ A(j) ∪ O(j) >, t, ...) }
 .SEME
 
 Produce a list of witnesses where each \fIvalue\fR identifier matches the value of the current attribute in each of the frame inputs, or null, if not in the matching frame. The special input \fBName\fR is the name of the current attribute and the special input \fBOrdinal\fR is the position of the current attribute.
 
+.TP
+Intermediate accumulator [G]
+.SEM Γ ⊢ base:FS \fBAccumulate\fR expr:E\*<0\*> \fBWith\fR name:I \fB:\fR initial:E\*<0\*> ↓ (Δ\*<1\*>, Δ\*<2\*>, ... )
+
+Γ ⊢ base ↓ W,
+
+Γ ⊢ initial ↓ v\*<0\*>,
+
+∀ i : Δ\*<i\*> = (<u\*<i\*>; w\*<i\*>; name → v\*<i - 1\*> >) +  w\*<i\*>,
+
+∀ i : Δ\*<i\*> ⊢ expr ↓ v\*<i\*>
+.SEME
+
+Bind a new value in each frame that is carried accross all frames in the iteration order.
+
+.TP
+Pass-through selector [G]
+.SEM (t, ...) ⊢ \fBEach\fR input:E\*<0\*> ↓ { ∀ i :  (v\*<i\*>, t, ...) }
+(t, ...) ⊢ input ↓ < u\*<i\*>; Δ\*<i\*>; k\*<i\*> → v\*<i\*> :: Frame >
+.SEME
+
+Passes-though a list of witnesses provided as a frame of frames.
+
+.TP
+Additional binding [=]
+.SEM Γ ⊢ base:FS \fBLet\fR name\*<0\*>:I \fB:\fR nameexpr:E\*<0\*> (\fB,\fR name\*<1\*>:I \fB:\fR nameexpr:E\*<1\*> )* ↓ (∀ i : Δ\*<i\*>)
+
+Γ ⊢ base ↓ W,
+
+∀ w\*<i\*> ∈ W, k : w\*<i\*> ⊢ nameexpr\*<k\*>n ↓ v\*<ik\*>,
+
+∀ w\*<i\*> ∈ W : Δ\*<i\*> = < u\*<i\*>; Δ\*<i\*>; ∀ k : name\*<k\*> → v\*<ik\*> >
+.SEME
+
+Modify a list of witnesses, provided as a frame of frames, to include new entires or replace existing ones.
+
+.TP
+Flatten frames [G]
+.SEM Γ ⊢ base:FS \fBFlatten\fR name\*<0\*>:I \fB:\fR expr:E\*<0\*> (\fB,\fR name\*<1\*>:I \fB:\fR expr:E\*<1\*> )* ↓ Δ\*<1\*> +  Δ\*<2\*> + ...
+
+Γ ⊢ base ↓ W,
+
+∀ w\*<i\*> ∈ W :  w\*<i\*> name\*<0\*>:I \fB:\fR expr:E\*<0\*> (\fB,\fR name\*<1\*>:I \fB:\fR expr:E\*<1\*> )* ↓ Δ\*<i\*>
+.SEME
+
+Expand nested frames in a stream. This uses the same semantics as the merge attribute selector.
+
+.TP
+Group by values (anonymous) [G]
+.SEM Γ ⊢ base:FS \fBGroup\fR collected_name\*<0\*>:I \fB:\fR collected_expr:E\*<0\*> (\fB,\fR collected_name\*<1\*>:I \fB:\fR collected_expr:E\*<1\*> )* \fBBy\fR discriminator_name\*<0\*>:I \fB:\fR discriminator_expr:E\*<0\*> (\fB,\fR discriminator_name\*<1\*>:I \fB:\fR discriminator_expr:E\*<1\*> )* ↓ Δ\*<1\*> +  Δ\*<2\*> + ...
+
+Γ ⊢ base ↓ W,
+
+∀ w\*<i\*> ∈ W, collected_expr\*<j\*> ∈ collected_expr : w\*<i\*> ⊢ collected_expr\*<j\*> ↓ c\*<ij\*>,
+
+∀ w\*<i\*> ∈ W, discriminator_expr\*<k\*> ∈ discriminator_expr : w\*<i\*> ⊢ discriminator_expr\*<k\*> ↓ d\*<ik\*> :: t\*<ik\*>,
+
+∀ k : t\*<1k\*> = t\*<2k\*> = ...,
+
+f(x) = i : ∀ k, p < i : d\*<ik\*> ≠ d\*<pk\*>,
+
+Δ\*<x\*> ( < u\*<x\*>; Γ; (∀ k : discriminator_name\*<k\*> → d\*<f(x)k\*>), (∀ k : collected_name\*<j\*> →  < u\*<xj\*>; Δ\*<x\*>; (∀ z, k : d\*<zk\*> = d\*<f(x)k\*> : ORD(z) → c\*<zj\*>) >) >)
+
+.SEME
+
+Group values with grouped values in frames with anonymous attribute names
+
+.TP
+Group by values (named) [G]
+.SEM Γ ⊢ base:FS \fBGroup\fR collected_name\*<0\*>:I \fB:\fR collected_expr:E\*<0\*> (\fB,\fR collected_name\*<1\*>:I \fB:\fR collected_expr:E\*<1\*> )* \fBName\fR name_expr:E\*<0\*> \fBBy\fR discriminator_name\*<0\*>:I \fB:\fR discriminator_expr:E\*<0\*> (\fB,\fR discriminator_name\*<1\*>:I \fB:\fR discriminator_expr:E\*<1\*> )* ↓ Δ\*<1\*> +  Δ\*<2\*> + ...
+
+Γ ⊢ base ↓ W,
+
+∀ w\*<i\*> ∈ W : w\*<i\*> ⊢ name_expr ↓ n\*<i\*>,
+
+∀ w\*<i\*> ∈ W, collected_expr\*<j\*> ∈ collected_expr : w\*<i\*> ⊢ collected_expr\*<j\*> ↓ c\*<ij\*>,
+
+∀ w\*<i\*> ∈ W, discriminator_expr\*<k\*> ∈ discriminator_expr : w\*<i\*> ⊢ discriminator_expr\*<k\*> ↓ d\*<ik\*> :: t\*<ik\*>,
+
+∀ k : t\*<1k\*> = t\*<2k\*> = ...,
+
+f(x) = i : ∀ k, p < i : d\*<ik\*> ≠ d\*<pk\*>,
+
+Δ\*<x\*> ( < u\*<x\*>; Γ; (∀ k : discriminator_name\*<k\*> → d\*<f(x)k\*>), (∀ k : collected_name\*<j\*> →  < u\*<xj\*>; Δ\*<x\*>; (∀ z | ∀ k : d\*<zk\*> = d\*<f(x)k\*> : n\*<z\*> → c\*<zj\*>) >) >)
+
+.SEME
+
+Group values with grouped values in frames with user-defined attribute names
+
+.TP
+Value ordered [U]
+.SEM Γ ⊢ base:FS \fBOrder\fR \fBBy\fR expr:E\*<0\*> ↓ (Δ\*<f(0)\*>, Δ\*<f(1)\*>, ..., x\*<f(n)\*>)
+Γ ⊢ base ↓ (Δ\*<0\*>, ..., Δ\*<n\*>)
+
+∀ Δ\*<i\*> : (w\*<i\*>*, t, ...) ⊢ expr ↓ v\*<i\*> :: t\*<i\*>,
+
+t\*<0\*> = t\*<1\*> = ... = t\*<n\*>,
+
+f(\*<i\*>) ≥ j : (v\*<j\*> ⇔ v\*<f(i - 1)\*>) ≥ 0,
+
+f(\*<i\*>) ≤ j : (v\*<j\*> ⇔ v\*<f(i - 1)\*>) ≤ 0
+.SEME
+
+Order the values based on an expression. The ordering implied by ⇔ is the same as in the \fB<=>\fR expression. For this to be possible, the types of the returned expression must be the same and comparable. If two items have the same value, the order is implementation-defined.
+
+.TP
+Reverse ordered [U]
+.SEM Γ ⊢ base:FS \fBReverse\fR ↓ (Δ\*<n\*>, ..., Δ\*<0\*>)
+
+Γ ⊢ base ↓ (Δ\*<0\*>, ..., Δ\*<n\*>)
+.SEME
+
+Reverses the order of the witnesses.
+
+.TP
+Randomly shuffle the order [U]
+.SEM Γ ⊢ base:FS \fBShuffle\fR ↓ SHUF(W)
+
+Γ ⊢ base ↓ W
+.SEME
+
+Where \fISHUF\fR produces a random permutation of its argument.
+
+.TP
+Skip input [g]
+.SEM Γ ⊢ base:FS \fBSkip\fR expr:E\*<0\*> ↓ X
+Γ ⊢ base ↓ W,
+
+∀ w\*<i\*> ∈ W : w\*<i\*> ⊢ expr ↓ v\*<i\*> :: Bool,
+
+X = { w\*<i\*> ∈ W | ∃ j < i : v\*<j\*> = False }
+.SEME
+
+Discard input before condition is met.
+
+.TP
+Truncate input [g]
+.SEM Γ ⊢ base:FS \fBUntil\fR expr:E\*<0\*> ↓ X
+Γ ⊢ base ↓ W,
+
+∀ w\*<i\*> ∈ W : w\*<i\*> ⊢ expr ↓ v\*<i\*> :: Bool,
+
+X = { w\*<i\*> ∈ W | ∀ j < i : v\*<j\*> = False }
+.SEME
+
+Discard input after condition is met.
+
+.TP
+Filtering [=]
+.SEM Γ ⊢ base:FS \fBWhere\fR expr:E\*<0\*> ↓ X
+Γ ⊢ base ↓ W,
+
+∀ w\*<i\*> ∈ W : w\*<i\*> ⊢ expr ↓ v\*<i\*> :: Bool,
+
+X = { w\*<i\*> ∈ W | v\*<i\*> = True }
+.SEME
+
 .SH FRICASSÉE RESULTS (FR)
 
 .TP
-Reducer (fold)
-.SEM Γ; W ⊢ order:FO \fBReduce\fR expr:E\*<0\*> \fBWith\fR name:I \fB:\fR initial:E\*<+\*> ↓ v
-Γ; W ⊢ order ↓ X,
-
-Γ; X ⊢ \fBReduce\fR expr \fBWith\fR name \fB:\fR initial ↓ v
-.SEME
-
+Reducer (fold) [S]
 .SEM Γ; ( ) ⊢ \fBReduce\fR expr:E\*<0\*> \fBWith\fR name:I \fB:\fR initial:E\*<+\*> ↓ v
+
 Γ ⊢ initial ↓ v
 .SEME
-.SEM (t, ...); ( < u; Δ; k\*<x\*> → v\*<x1\*>, k\*<y\*> → v\*<y1\*>, ... >, w\*<1\*>, ... ) ⊢ \fBReduce\fR expr:E\*<0\*> \fBWith\fR name:I \fB:\fR initial:E\*<+\*> ↓ v\*<f\*>
-(t, ...) ⊢ initial ↓ v\*<i\*>,
+.SEM Γ; ( Δ\*<1\*>, Δ\*<2\*>, ..., Δ\*<n\*>) ⊢ \fBReduce\fR expr:E\*<0\*> \fBWith\fR name:I \fB:\fR initial:E\*<+\*> ↓ v\*<n\*>
+Γ ⊢ initial ↓ v\*<0\*>,
 
-(< u; Δ; name → v\*<i\*>, k\*<x\*> → v\*<x1\*>, k\*<y\*> → v\*<y1\*>, ... >*, t, ...) ⊢ expr ↓ v
-
-(t, ...); ( w\*<1\*>, ... ) ⊢ \fBReduce\fR expr \fBWith\fR name \fB:\fR v ↓ v\*<f\*>
+∀ i : (< u\*<i\*>; Δ\*<i\*>; name → v\*<i - 1\*> >) + Δ\*<i\*> ⊢ expr ↓ v\*<i\*>
 .SEME
 
 This reduces an expression to a single value.
 
 .TP
-Anonymous value generator
-.SEM Γ; W ⊢ order:FO \fBSelect\fR expr:E\*<+\*> ↓ v
-Γ; W ⊢ order ↓ X,
+Single value selector [I]
+.SEM Γ; (Δ) ⊢ \fBSingle\fR expr:E\*<+\*> ↓ v
 
-Γ; X ⊢ \fBSelect\fR expr ↓ v,
+Δ ⊢ expr ↓ v
 .SEME
 
-.SEM (t, ...); ( w\*<0\*>, w\*<1\*>, ... ) ⊢ \fBSelect\fR expr:E\*<+\*> ↓ r = < u; r, t, ...; ∀ x : ORD(x) → v\*<x\*> >
+Select a single item from a stream. If multiple values are present, an error occurs. If no value is present, an error occurs.
 
-∀ w\*<x\*> : (w\*<x\*>*, t, ...) ⊢ expr ↓ v\*<x\*>
+.TP
+Single value selector with default [I]
+.SEM Γ; (Δ) ⊢ \fBSingle\fR expr:E\*<+\*> \fBOr\fR default:E\*<+\*> ↓ v
+
+Δ ⊢ expr ↓ v
+.SEME
+
+.SEM Γ; () ⊢ \fBSingle\fR expr:E\*<+\*> \fBOr\fR default:E\*<+\*> ↓ v
+
+Γ ⊢ default ↓ v
+.SEME
+
+Select a single item from a stream. If multiple values are present, an error occurs.
+
+.TP
+Anonymous value generator [S]
+.SEM Γ; ( Δ\*<0\*>, Δ\*<1\*>, ... ) ⊢ \fBSelect\fR expr:E\*<+\*> ↓ r = < u; Γ; ∀ x : ORD(x) → v\*<x\*> >
+
+∀ Δ\*<x\*> : Δ\*<x\*> ⊢ expr ↓ v\*<x\*>
 .SEME
 
 This produces a list-like frame by evaluating the supplied expression on each frame of witnesses.
 
 .TP
-Named attribute frame generator
-.SEM (t, ...); ( w\*<0\*>, w\*<1\*>, ... ) ⊢ \fBSelect\fR attr:E\*<0\*> \fB:\fR expr:E\*<+\*> ↓ r = < u; r, t, ...; k\*<x\*> → v\*<x\*> >
+Named attribute frame generator [I]
+.SEM Γ; ( Δ\*<0\*>, Δ\*<1\*>, ... ) ⊢ \fBSelect\fR attr:E\*<0\*> \fB:\fR expr:E\*<+\*> ↓ r = < u; Γ; k\*<x\*> → v\*<x\*> >
 
-(w\*<x\*>*, t, ...) ⊢ attr ↓ k\*<x\*> :: Str ∨ (w\*<x\*>*, t, ...) ⊢ attr ↓ v :: Int ∧ k\*<x\*> = ORD(v),
+Δ\*<x\*>* ⊢ attr ↓ k\*<x\*> :: Str ∨ Δ\*<x\*> ⊢ attr ↓ v :: Int ∧ k\*<x\*> = ORD(v),
 
-(w\*<x\*>*, t, ...) ⊢ expr ↓ v\*<x\*>
+Δ\*<x\*>* ⊢ expr ↓ v\*<x\*>
 .SEME
 
 This produces a frame with named attributes from strings or integers. Since frames cannot have duplicate keys, any duplicate keys produce an error. Similarly, since not all strings are valid keys, any string which is not a valid key is an error.
-
-.SH FRICASSÉE ORDERING (FO)
-
-.TP
-Value ordered
-.SEM (t, ...); (w\*<0\*>, ...) ⊢ \fBOrder\fR \fBBy\fR expr:E\*<0\*> ↓ (x\*<0\*>, x\*<1\*>, ..., x\*<n\*>)
-V = { ∀ w\*<i\*> : (w\*<i\*>*, t, ...) ⊢ e ↓ v\*<i\*> :: t\*<i\*> },
-
-t\*<0\*> = t\*<1\*> = ... = t\*<n\*>,
-
-x\*<i\*> = w\*<j\*> ∧ u\*<i\*> = v\*<j\*> : v\*<j\*> ≥ u\*<i-1\*>
-.SEME
-
-Order the values based on an expression. The ordering implied by ≥ is the same as in the \fB<=>\fR expression. For this to be possible, the types of the returned expression must be the same and comparable. If two items have the same value, the order is implementation-defined.
-
-.TP
-Reverse ordered
-.SEM Γ; (w\*<0\*>, ..., w\*<n\*>) ⊢ \fBReverse\fR ↓ (w\*<n\*>, ...w\*<0\*>)
-.SEME
-
-Reverses the order of the witnesses.
 
 .SS TIME PARTS (T)
 .TP
@@ -1316,10 +1402,60 @@ Hours (T\*<2\*>)
 t ↓ u :: Int
 .SEME
 
+.SS LOOKUP SOURCES (LS)
+
 .TP
-Seconds (T\*<3\*>)
-.SEM (\fB0\fR/[\fB1\fR-\fB9\fR][\fB0\fR-\fB9\fR]*)\fBs\fR ↓ v :: Int
-t ↓ u :: Int
+Use current context as source
+.SEM Γ ⊢ \fBHere\fR ↓ Γ
+.SEME
+
+.TP
+Use frame's context as source
+.SEM Γ ⊢ \fBIn\fR expr:E\*<+\*> ↓ Δ
+Γ ⊢ expr ↓ < u; Δ; ... >
+.SEME
+
+.TP
+Use frame as source
+.SEM Γ ⊢ \fBWithin\fR expr:E\*<+\*> ↓ (f)
+Γ ⊢ expr ↓ f :: Frame
+.SEME
+
+.SS LOOKUP NAMES (LN)
+
+.TP
+Dynamic
+.SEM Γ ⊢ \fBFlatten(\fR expr:E \fB)\fR ↓ name\*<1\*>, name\*<2\*>, ...
+Γ ⊢ expr ↓ < u; Δ; n\*<1\*> ⊢ v\*<1\*>,  n\*<2\*> ⊢ v\*<2\*>, ...>,
+
+name\*<i\*> = v\*<i\*> : v\*<i\*> :: Str ∧ IDENTIFIER(v\*<i\*>) ∨ name\*<i\*> = v\*<i\*> : ORD(v\*<i\*>) :: Int
+.SEME
+
+.TP
+Sames as definition
+.SEM Γ ⊢ name:DI ↓ n
+Γ ⊢ name ↓ n
+.SEME
+
+.SS CONTEXTUAL LOOKUP HANDLER
+This defines the semantics of the contextual lookup handler. There are other lookup handlers, but their semantics are not defined as part of the Flabbergast language.
+
+.SEM (t, s, ...) ⊢  CONTEXTUAL(name\<*1\*>, ...) ↓ v
+CONTEXTUAL_INNER(t; name\*<1\*>, ...) ↓ v
+.SEME
+
+.SEM (t, s, ...) ⊢  CONTEXTUAL(name\<*1\*>, ...) ↓ v
+(s, ...) ⊢ CONTEXTUAL(name\*<1\*>, ...) ↓ v
+.SEME
+
+.SEM CONTEXTUAL_INNER(t; name) ↓ v
+t = < u; Γ; name → v >
+.SEME
+
+.SEM CONTEXTUAL_INNER(t; name\*<1\*>, name\*<2\*>, ...) ↓ v
+t = < u; Γ; name → s :: Frame >,
+
+CONTEXTUAL_INNER(s; name\*<2\*>, ...) ↓ v
 .SEME
 
 .SH EVALUATION SEMANTICS

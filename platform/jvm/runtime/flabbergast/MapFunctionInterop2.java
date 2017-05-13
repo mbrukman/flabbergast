@@ -1,28 +1,26 @@
 package flabbergast;
 
-public class MapFunctionInterop2<T1, T2, R> extends BaseMapFunctionInterop<T1, R> {
+import java.util.function.Function;
+
+class MapFunctionInterop2<T1, T2, R> extends BaseMapFunctionInterop<T1, R> {
   private final Func2<T1, T2, R> func;
   private final String parameter;
-  private final Class<T2> parameterClazz;
-  private final boolean parameterNullable;
+  private final Matcher<T2> parameterMatcher;
   private T2 reference;
 
-  public MapFunctionInterop2(
-      Class<R> returnClass,
-      Class<T1> clazz,
+  MapFunctionInterop2(
+      Function<R, Any> packer,
+      Matcher<T1> matcher,
       Func2<T1, T2, R> func,
-      Class<T2> parameterClazz,
-      boolean parameterNullable,
+      Matcher<T2> parameterMatcher,
       String parameter,
-      TaskMaster task_master,
-      SourceReference source_ref,
+      TaskMaster taskMaster,
+      SourceReference sourceReference,
       Context context,
-      Frame self,
-      Frame container) {
-    super(returnClass, clazz, task_master, source_ref, context, self, container);
+      Frame self) {
+    super(packer, matcher, taskMaster, sourceReference, context, self);
     this.func = func;
-    this.parameterClazz = parameterClazz;
-    this.parameterNullable = parameterNullable;
+    this.parameterMatcher = parameterMatcher;
     this.parameter = parameter;
   }
 
@@ -33,8 +31,6 @@ public class MapFunctionInterop2<T1, T2, R> extends BaseMapFunctionInterop<T1, R
 
   @Override
   protected void setupExtra() {
-    Sink<T2> reference_lookup = find(parameterClazz, x -> this.reference = x);
-    reference_lookup.allowDefault(parameterNullable, null);
-    reference_lookup.lookup(parameter);
+    find(parameterMatcher, x -> this.reference = x, parameter);
   }
 }

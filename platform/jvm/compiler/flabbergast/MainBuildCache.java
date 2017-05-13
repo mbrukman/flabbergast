@@ -2,10 +2,15 @@ package flabbergast;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
+import java.nio.file.FileVisitOption;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+import java.util.Comparator;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
+import java.util.stream.Stream;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.GnuParser;
@@ -14,33 +19,13 @@ import org.apache.commons.cli.ParseException;
 
 public class MainBuildCache {
 
-  private static void discover(File root, List<File> sources, Set<String> known_classes) {
-    for (File f : root.listFiles()) {
-      if (f.isDirectory()) {
-        discover(f, sources, known_classes);
-      } else if (f.isFile()) {
-        if (f.getName().endsWith(".o_0") || f.getName().endsWith(".jo_0")) {
-          sources.add(f);
-        } else if (f.getName().endsWith(".class")) {
-          try {
-            known_classes.add(f.getCanonicalPath());
-          } catch (IOException e) {
-            e.printStackTrace();
-          }
-        }
-      }
-    }
-  }
-
-  /** @param args */
-  public static void main(String[] args) {
+  public static void main(String[] args) throws IOException {
     Options options = new Options();
-    options.addOption("P", "preserve", false, "Do not delete old class files.");
-    CommandLineParser cl_parser = new GnuParser();
+    CommandLineParser argParser = new GnuParser();
     final CommandLine result;
 
     try {
-      result = cl_parser.parse(options, args);
+      result = argParser.parse(options, args);
     } catch (ParseException e) {
       System.err.println(e.getMessage());
       System.exit(1);
@@ -51,53 +36,43 @@ public class MainBuildCache {
       System.exit(1);
       return;
     }
-    ErrorCollector collector = new ConsoleCollector();
-    final Set<String> known_classes = new HashSet<String>();
-    List<File> sources = new ArrayList<File>();
-    File root = new File(".");
-    discover(root, sources, known_classes);
+    try (Stream<Path> files = Files.walk(Paths.get(".jvmcache"), FileVisitOption.FOLLOW_LINKS)) {
+      files
+          .sorted(Comparator.reverseOrder())
+          .map(Path::toFile)
+          .peek(System.out::println)
+          .forEach(File::delete);
+    }
+    Compiler compiler = Compiler.find(SourceFormat.FLABBERGAST, TargetFormat.JVM).get();
+    Set<String> brokenFiles = new HashSet<>();
+    BuildCollector collector =
+        new BuildCollector() {
 
-    CompilationUnit<Boolean> unit =
-        new WriterCompilationUnit(true) {
           @Override
-          protected void fileEvent(File file) {
+          public void emitError(SourceLocation location, String error) {
+            brokenFiles.add(location.getFileName());
+          }
+
+          @Override
+          public void emitOutput(String fileName, byte[] data) {
+            Path path = Paths.get(".jvmcache", fileName + ".class");
             try {
-              known_classes.remove(file.getCanonicalPath());
+              Files.createDirectories(path.getParent());
+              Files.write(
+                  path, data, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
             } catch (IOException e) {
-              e.printStackTrace();
+              System.err.printf("Failed to write %s: %s\n", path, e.getMessage());
             }
           }
-        };
-    boolean success = true;
-    for (File source : sources) {
-      try {
-        String filename = source.getPath();
-        Parser parser = Parser.open(source.getCanonicalPath());
-        String file_root =
-            ("flabbergast/library/" + removeSuffix(filename))
-                .replace(File.separatorChar, '/')
-                .replaceAll("[/.]+", "/")
-                .replace('-', '_');
-        parser.parseFile(collector, unit, file_root);
-      } catch (Exception e) {
-        success = false;
-        e.printStackTrace();
-      }
-    }
-    if (!result.hasOption('P')) {
-      for (String dead : known_classes) {
-        new File(dead).delete();
-      }
-    }
-    System.exit(success ? 0 : 1);
-  }
 
-  public static String removeSuffix(String filename) {
-    for (String suffix : new String[] {".o_0", ".jo_0"}) {
-      if (filename.endsWith(suffix)) {
-        return filename.substring(0, filename.length() - suffix.length());
-      }
-    }
-    return filename;
+          @Override
+          public void emitRoot(String fileName) {}
+        };
+    compiler
+        .compile(Paths.get("."), SourceFormat.FLABBERGAST.getExtension())
+        .map(Pair::getValue)
+        .forEach(output -> output.collect(collector));
+    brokenFiles.stream().forEach(file -> System.err.println("Failed to compile: " + file));
+    System.exit(brokenFiles.isEmpty() ? 0 : 1);
   }
 }

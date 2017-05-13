@@ -1,7 +1,6 @@
 package flabbergast;
 
-import java.io.File;
-import java.io.IOException;
+import java.nio.file.Paths;
 import java.util.EnumSet;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -14,14 +13,14 @@ public class MainPrinter {
   public static void main(String[] args) {
     Options options = new Options();
     options.addOption("o", "output", true, "Write output to file instead of standard output.");
-    options.addOption("t", "trace-parsing", false, "Produce a trace of the parse process.");
     options.addOption("p", "no-precomp", false, "Do not use precompiled libraries");
+    options.addOption("s", "sandbox", false, "Do not allow network/disk access");
     options.addOption("h", "help", false, "Show this message and exit");
-    CommandLineParser cl_parser = new GnuParser();
+    CommandLineParser argParser = new GnuParser();
     CommandLine result;
 
     try {
-      result = cl_parser.parse(options, args);
+      result = argParser.parse(options, args);
     } catch (ParseException e) {
       System.err.println(e.getMessage());
       System.exit(1);
@@ -41,42 +40,47 @@ public class MainPrinter {
       System.exit(1);
     }
 
-    ResourcePathFinder resource_finder = new ResourcePathFinder();
-    try {
-      resource_finder.prependPath(
-          new File(new File(files[0]).getParentFile(), "lib").getCanonicalPath());
-    } catch (IOException e) {
-      e.printStackTrace();
-    }
-    resource_finder.addDefaults();
-    ErrorCollector collector = new ConsoleCollector();
-    ConsoleTaskMaster task_master = new ConsoleTaskMaster();
-    DynamicCompiler compiler = new DynamicCompiler(collector);
-    compiler.setFinder(resource_finder);
-    task_master.addUriHandler(compiler);
+    ResourcePathFinder resourceFinder = new ResourcePathFinder();
+    resourceFinder.add(Paths.get(files[0]).toAbsolutePath().getParent().resolve("lib"));
+    resourceFinder.addDefaults();
+    ConsoleTaskMaster taskMaster =
+        new ConsoleTaskMaster() {
+
+          @Override
+          protected void print(String str) {
+            System.err.print(str);
+          }
+
+          @Override
+          protected void println(String str) {
+            System.err.println(str);
+          }
+        };
+    DynamicCompiler compilerLoader =
+        new DynamicCompiler(SourceFormat.FLABBERGAST, ErrorCollector.toStandardError());
+    compilerLoader.setFinder(resourceFinder);
+    taskMaster.addUriHandler(compilerLoader);
     EnumSet<LoadRule> rules = EnumSet.noneOf(LoadRule.class);
     if (result.hasOption('p')) {
       rules.add(LoadRule.PRECOMPILED);
     }
-    task_master.addAllUriHandlers(resource_finder, rules);
-    try {
-      Parser parser = Parser.open(files[0]);
-      parser.setTrace(result.hasOption('t'));
-      Class<? extends Future> run_type =
-          parser.parseFile(collector, compiler.getCompilationUnit(), "Printer");
-      if (run_type != null) {
-        Future computation = run_type.getConstructor(TaskMaster.class).newInstance(task_master);
-        PrintResult filewriter =
-            new PrintResult(task_master, computation, result.getOptionValue('o'));
-        filewriter.slot();
-        task_master.run();
-        task_master.reportCircularEvaluation();
-        System.exit(filewriter.getSuccess() ? 0 : 1);
-      }
-    } catch (Exception e) {
-      System.err.println(e.getMessage());
-      e.printStackTrace();
+    if (result.hasOption('s')) {
+      rules.add(LoadRule.SANDBOXED);
     }
-    System.exit(1);
+    taskMaster.addAllUriHandlers(resourceFinder, rules);
+    Compiler compiler =
+        SourceFormat.find(files[0])
+            .optionalMap(format -> Compiler.find(format, TargetFormat.JVM))
+            .orElseThrow("Cannot find compiler for this file.");
+    PrintResult printer =
+        result.hasOption('o')
+            ? new PrintResult.ToFile(result.getOptionValue('o'))
+            : new PrintResult.ToStandardOut();
+    Instantiator instantiator =
+        new Instantiator(ErrorCollector.toStandardError(), taskMaster, printer.toConsumer());
+    compiler.compile(Paths.get(files[0])).collect(instantiator);
+    taskMaster.run();
+    taskMaster.reportCircularEvaluation();
+    System.exit(printer.getSuccess() ? 0 : 1);
   }
 }

@@ -2,47 +2,66 @@ package flabbergast;
 
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.function.Function;
 
-public abstract class BaseMapFunctionInterop<T, R> extends InterlockedLookup {
-  private final Class<T> clazz;
-  protected final Frame container;
+/**
+ * Base for injecting native functions into Flabbergast as function-like templates that map the
+ * variadic “args” frame to a “value” frame.
+ *
+ * @param<T> The argument type expected in “args”
+ * @param <R> The return type of the function-like template
+ */
+public abstract class BaseMapFunctionInterop<T, R> extends AssistedFuture {
   private Map<String, T> input;
-  private final Class<R> returnClass;
+  private final Matcher<T> matcher;
+
+  private final Function<R, Any> packer;
+
   protected final Frame self;
 
   public BaseMapFunctionInterop(
-      Class<R> returnClass,
-      Class<T> clazz,
-      TaskMaster task_master,
-      SourceReference source_reference,
+      Function<R, Any> packer,
+      Matcher<T> matcher,
+      TaskMaster taskMaster,
+      SourceReference sourceReference,
       Context context,
-      Frame self,
-      Frame container) {
-    super(task_master, source_reference, context);
-    this.returnClass = returnClass;
-    this.clazz = clazz;
+      Frame self) {
+    super(taskMaster, sourceReference, context);
+    this.packer = packer;
+    this.matcher = matcher;
     this.self = self;
-    this.container = container;
   }
 
+  /**
+   * Compute the value to be returned to Flabbergast for one item in the “args” frame
+   *
+   * <p>The attribute name of the argument will be preserved in the output.
+   *
+   * @param input the value to be transformed
+   * @throws Exception Any exception thrown will be caught and the message will be presented in the
+   *     Flabbergast stack trace.
+   */
   protected abstract R computeResult(T input) throws Exception;
 
   @Override
   protected final void resolve() {
-    MutableFrame output_frame = new MutableFrame(task_master, source_reference, context, self);
-    for (Entry<String, T> entry : input.entrySet()) {
-      output_frame.set(entry.getKey(), correctOutput(() -> computeResult(entry.getValue())));
+    final ValueBuilder builder = new ValueBuilder();
+    for (final Entry<String, T> entry : input.entrySet()) {
+      final Any item = correctOutput(() -> computeResult(entry.getValue()), packer);
+      if (item == null) {
+        return;
+      }
+      builder.set(entry.getKey(), item);
     }
-    result = output_frame;
+    complete(Any.of(Frame.create(taskMaster, sourceReference, context, self, builder)));
   }
 
   @Override
   protected final void setup() {
-    ListSink<T> args_lookup = findAll(clazz, x -> this.input = x);
-    args_lookup.allowDefault(false, null);
-    args_lookup.lookup("args");
+    findAll(matcher, x -> this.input = x, "args");
     setupExtra();
   }
 
+  /** If additional parameters are required, override this function to define them */
   protected void setupExtra() {}
 }

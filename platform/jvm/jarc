@@ -30,7 +30,7 @@ done
 
 # JavaDoc JAR
 mkdir .build
-${JAVADOC-javadoc} -quiet -encoding UTF-8 -sourcepath "$SOURCEPATH" -d .build $(find "$PKG" "$@" -name '*.java')
+${JAVADOC-javadoc} -quiet -encoding UTF-8 -doctitle "Flabbergast Configuration Language ${VER}: ${PKG}" -sourcepath "$SOURCEPATH" -d .build $(find "$PKG" "$@" -name '*.java')
 ${JAR-jar} cfm "${PREFIX}-javadoc.jar" "${PKG}.manifest" -C .build .
 rm -rf .build
 

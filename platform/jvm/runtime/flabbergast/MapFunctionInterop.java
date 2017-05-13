@@ -1,18 +1,19 @@
 package flabbergast;
 
-public class MapFunctionInterop<T, R> extends BaseMapFunctionInterop<T, R> {
+import java.util.function.Function;
+
+class MapFunctionInterop<T, R> extends BaseMapFunctionInterop<T, R> {
   private final Func<T, R> func;
 
-  public MapFunctionInterop(
-      Class<R> returnClass,
-      Class<T> clazz,
+  MapFunctionInterop(
+      Function<R, Any> packer,
+      Matcher<T> matcher,
       Func<T, R> func,
-      TaskMaster task_master,
-      SourceReference source_ref,
+      TaskMaster taskMaster,
+      SourceReference sourceReference,
       Context context,
-      Frame self,
-      Frame container) {
-    super(returnClass, clazz, task_master, source_ref, context, self, container);
+      Frame self) {
+    super(packer, matcher, taskMaster, sourceReference, context, self);
     this.func = func;
   }
 

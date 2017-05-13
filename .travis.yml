@@ -7,7 +7,7 @@ before_script:
 - sudo apt-add-repository -y ppa:flabbergast/ppa
 - sudo apt-get update -qq
 - sudo apt-get install -qq -y --force-yes flabbergast-java devscripts groff
-  man-db xmlstarlet texlive-binaries equivs
+  man-db xmlstarlet texlive-binaries equivs inkscape
 - sudo mk-build-deps -i -t "apt-get -qq -y --force-yes --no-install-recommends"
 script: "./.travis-build"
 notifications:

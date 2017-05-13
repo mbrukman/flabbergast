@@ -11,7 +11,8 @@
         <link rel="stylesheet" type="text/css" href="o_0-index.css"/>
       </head>
       <body>
-        <h1><a href="http://flabbergast.org/">⌂</a> Flabbergast Documentation</h1>
+        <h1><a href="http://flabbergast.org/">Flabbergast</a> Flabbergast Documentation</h1>
+<div id="container"><div id="content">
         <p>Is Flabbergast making you go o_0? If so, start with <a href="https://github.com/flabbergast-config/flabbergast/blob/master/flabbergast-manual.md">the Flabbergast Manual</a>. If you just want to know the name of that template thing that does the stuff, this the right place.</p>
         <h2>Libraries</h2>
         <table>
@@ -44,6 +45,7 @@
             </xsl:apply-templates>
           </tbody>
         </table>
+</div></div>
       </body>
     </html>
   </xsl:template>

@@ -83,11 +83,19 @@ queryifier : Template {
 			For col : columns, lcol : lookup_columns, name : Name, pos : Ordinal
 				Reduce (If pos > 1 Then acc & ", " Else "") & (col ?? lcol).sql_expr & " AS " & provider.symbol_start Enforce Str & (If col Is Null Then "$" Else If lcol Is Null Then "" Else Error name & " is both a column and a lookup column.") & name & provider.symbol_end Enforce Str
 				With acc : Null
+		column_parameters :
+			For col : columns, lcol : lookup_columns
+				Reduce acc Append (col ?? lcol).sql_parameters
+				With acc : []
 		{{{Generate the \Mono{WHERE} clause, if any.}}}
 		where_clause :
 			For clause : exp_where, position : Ordinal
 				Reduce (If position > 1 Then acc & " AND " Else " WHERE ") & clause.sql_expr
 				With acc : ""
+		where_parameters :
+			For clause : exp_where, position : Ordinal
+				Reduce acc Append clause.sql_parameters
+				With acc : []
 		sql_aggregate_context : Null
 		sql_non_aggregate_result_cols :
 			For x : columns Append lookup_columns Append exp_where
@@ -115,10 +123,16 @@ queryifier : Template {
 					(For clause : exp_group, position : Ordinal
 						Reduce (If position > 1 Then acc & ", " Else " GROUP BY ") & clause.sql_expr
 						With acc : "")
+		group_parameters :
+					For clause : exp_group
+						Reduce acc Append clause.sql_parameters
+						With acc : []
 		{{{Generate the total query.}}}
 		sql_query :
 			If column_clause Is Null Then Error "No columns specified in query."
 			Else "SELECT " & column_clause Enforce Str & (If from_clause Is Null Then provider.null_from Else " FROM " & from_clause Enforce Str) & where_clause Enforce Str & group_clause Enforce Str
+		{{{A positional list of parameters. These are useful if generating queries with \Mono{?} that need matching information to fill in.}}}
+		sql_parameters : column_parameters Append where_parameters Append group_parameters
 	}
 }
 
@@ -162,12 +176,13 @@ offline_table_tmpl : Template {
 		{{{The type of the column. If not specified, it is assumed to be a string.}}}
 		sql_type : sql_types.str
 
-		sql_tables : Now utils_lib.frame(sql_from, name : Id)
+		sql_tables : Now { Attribute(Id) : Now This }
 		sql_column : column_name
 
 		sql_expr : sql_from Enforce Str & "." & provider.symbol_start Enforce Str & column_name Enforce Str & provider.symbol_end Enforce Str
-		sql_non_aggregate_columns : utils_lib.frame(This, name : Id)
+		sql_non_aggregate_columns : { Attribute(Id) : Now This }
 		sql_aggregated_tables : {}
+		sql_parameters : []
 	}
 
 	known_columns : columns {}
@@ -180,14 +195,15 @@ alias_table_tmpl : Template {
 	backing : Required
 	aliasable_table : False
 	sql_from : If backing.aliasable_table Then backing.sql_from Enforce Str & " AS " & name Else Error "Cannot create alias \(name). The backing table is not aliasable."
-	known_columns : Let this_table : utils_lib.frame(sql_from, name : Id) In
+	known_columns : Let this_table : { Attribute(Id) : sql_from } In
 		For backing_column : backing.known_columns, col_name : Name Select col_name : provider.expr.base_expr_tmpl {
 				sql_expr : name & "." & sql_column
 				sql_column : backing_column.sql_column
 				sql_type : backing_column.sql_type
 				sql_tables : this_table
-				sql_non_aggregate_columns : utils_lib.frame(This, name : Id)
+				sql_non_aggregate_columns : { Attribute(Id) : Now This }
 				sql_aggregated_tables : {}
+				sql_parameters : []
 		}
 }
 
@@ -283,9 +299,10 @@ sql_literal_table_tmpl : Template {
 					Then Error "Column “\(name)” in literal table does not have consistent type."
 					Else column_tmpl { sql_expr : provider.symbol_start Enforce Str & table_name Enforce Str & provider.symbol_end Enforce Str & "." & provider.symbol_start Enforce Str & name & provider.symbol_end Enforce Str  sql_type : type }
 	column_tmpl : Template {
-		sql_tables : Now utils_lib.frame(sql_from, name : Id)
-		sql_non_aggregate_columns : utils_lib.frame(This, name : Id)
+		sql_tables : Now { Attribute(Id) : Now This }
+		sql_non_aggregate_columns : { Attribute(Id) : Now This }
 		sql_aggregated_tables : {}
+		sql_parameters : []
 	}
 	aliasable_table : False
 	sql_from : (provider.generate_literal_from {}).value
@@ -457,9 +474,10 @@ sql_provider : Template {
 	column_discovery : Template retrieve {
 		table : Required
 		sql_row_tmpl : Template expr.base_expr_tmpl {
-			sql_tables : Now utils_lib.frame(table.sql_from, name : GenerateId table)
-			sql_non_aggregate_columns : utils_lib.frame(This, name : Id)
+			sql_tables : Now { Attribute(GenerateId table) : table.sql_from }
+			sql_non_aggregate_columns : { Attribute(Id) : Now This }
 			sql_aggregated_tables : {}
+			sql_parameters : []
 		}
 	}
 	cast_name : casting_name {}
@@ -497,11 +515,14 @@ sql_provider : Template {
 			sql_non_aggregate_columns : Required
 			{{{All the tables that are under aggegation in this expression.}}}
 			sql_aggregated_tables : Required
+			{{{All of the parameter values from the arguments of this expression.}}}
+			sql_parameters : Required
 		}
 		base_const_tmpl : Template base_expr_tmpl {
 			sql_tables : {}
 			sql_non_aggregate_columns : {}
 			sql_aggregated_tables : {}
+			sql_parameters : []
 		}
 		base_unary_expr_tmpl : Template base_expr_tmpl {
 			{{{The argument to cast.}}}
@@ -509,6 +530,7 @@ sql_provider : Template {
 			sql_tables : arg.sql_tables
 			sql_non_aggregate_columns : arg.sql_non_aggregate_columns
 			sql_aggregated_tables : arg.sql_aggregated_tables
+			sql_parameters : arg.sql_parameters
 		}
 		base_unary_function_tmpl : Template base_unary_expr_tmpl {
 			sql_arg_type : Required
@@ -524,6 +546,7 @@ sql_provider : Template {
 			sql_tables : For left_table : specials.l.sql_tables, right_table : specials.r.sql_tables, name : Name Select name : left_table ?? right_table
 			sql_non_aggregate_columns : For left_cols : specials.l.sql_non_aggregate_columns, right_cols : specials.r.sql_non_aggregate_columns, name : Name Select name : (left_cols ?? right_cols)
 			sql_aggregated_tables : For l : specials.l.sql_aggregated_tables, r : specials.r.sql_aggregated_tables, n : Name Select n : (l ?? r)
+			sql_parameters : specials.l.sql_parameters Append specials.r.sql_parameters
 		}
 		base_arith_expr_tmpl : Template base_binary_expr_tmpl {
 			sql_rule :
@@ -549,6 +572,10 @@ sql_provider : Template {
 				For arg : sql_args
 					Reduce For table : arg.sql_tables, acc_table : acc, name : Name Select name : table ?? acc_table
 					With acc : {}
+			sql_parameters :
+				For arg : sql_args
+					Reduce acc Append arg.sql_parameters
+					With acc : []
 		}
 		base_infix_expr_tmpl : Template base_args_tmpl {
 			{{{The expressions to be put together.}}}
@@ -635,6 +662,7 @@ sql_provider : Template {
 			}
 			sql_non_aggregate_columns : {}
 			sql_aggregated_tables : arg.sql_tables
+			sql_parameters : arg.sql_parameters
 		}
 		base_variadic_func_tmpl : Template base_args_tmpl {
 			{{{The expressions aggregate.}}}
@@ -712,6 +740,7 @@ sql_provider : Template {
 				sql_tables : For test_table : when_specials.t.sql_tables, input_table : when_specials.r.sql_tables, name : Name Select name : test_table ?? input_table
 				sql_non_aggregate_columns : For test_cols : when_specials.t.sql_non_aggregate_columns, result_cols : when_specials.r.sql_non_aggregate_columns, name : Name Select name : test_cols ?? result_cols
 				sql_aggregated_tables : For l : when_specials.t.sql_aggregated_tables, r : when_specials.r.sql_aggregated_tables, n : Name Select n : (l ?? r)
+				sql_parameters : when_specials.t.sql_parameters Append when_specials.r.sql_parameters
 			}
 
 			specials : Template {
@@ -752,6 +781,10 @@ sql_provider : Template {
 				Where !(x Is Null)
 				Reduce (For c : x.sql_aggregated_tables, a : acc, n : Name Select x : (a ?? c))
 				With acc : {}
+			sql_parameters : For x : cases Append sql_specials
+				Where !(x Is Null)
+				Reduce acc Append x.sql_parameters
+				With acc : []
 		}
 		case_bool : Template base_case_tmpl {
 			sql_allowed_test_type : sql_types.bool
@@ -805,6 +838,10 @@ sql_provider : Template {
 				For arg : haystack_marshalled
 					Reduce For a : acc, r : arg.sql_aggregated_tables, n : Name Select n : (a ?? r)
 					With acc : {}
+			sql_parameters :
+				For arg : haystack_marshalled
+					Reduce acc Append arg.sql_parameters
+					With acc : specials.n.sql_parameters
 
 		}
 		contains_subquery : Template subquery {
@@ -972,6 +1009,7 @@ sql_provider : Template {
 			sql_aggregated_tables : For s : specials
 				Reduce For a : acc, s : s.sql_aggregated_tables, n : Name Select n : (a ?? s)
 				With acc : {}
+			sql_parameters : specials.i.sql_parameters Append specials.s.sql_parameters Append specials.l.sql_parameters
 		}
 		sub : Template base_arith_expr_tmpl {
 			sql_op : sql_arith_ops.sub
@@ -997,6 +1035,7 @@ sql_provider : Template {
 				For clause : exp_where, position : Ordinal
 					Reduce (If position > 1 Then acc & " AND " Else " WHERE ") & clause.sql_expr
 					With acc : ""
+			where_parameters : For clause : exp_where Reduce acc Append clause.sql_parameters With acc : []
 
 			# All the tables used by the query
 			total_tables :
@@ -1072,9 +1111,11 @@ sql_provider : Template {
 						(For clause : exp_group, position : Ordinal
 							Reduce (If position > 1 Then acc & ", " Else " GROUP BY ") & clause.sql_expr
 							With acc : "")
+			group_parameters : For clause : exp_group Reduce acc Append clause.sql_parameters With acc : []
 			# Query itself
 			sql_type : result.sql_type
 			sql_expr : "(SELECT \(result.sql_expr Enforce Str)" & (If from_clause Is Null Then provider.null_from Else " FROM " & from_clause Enforce Str) & where_clause Enforce Str & group_clause Enforce Str & ")"
+			sql_parameters : result.sql_parameters Append where_parameters Append group_parameters
 		}
 		sum : Template base_aggregate_func_tmpl {
 			sql_func : "SUM"
@@ -1418,3 +1459,50 @@ sql_providers : {
 
 {{{The default row template is empty, providing only the columns in the database.}}}
 sql_row_tmpl : Template {}
+
+{{{Generate a lookup handler to do a recursive lookup through a database. This is designed to resolve a list of Flabbergast names through a query that iteratively climbs through a (presumably) self-joined table. The query must return one column which is an integer and one row at a time. It takes two properties: a numeric identifier for the row (presumably the key) and the Flabbergast identifier being resolved.}}}
+sql_recursive_lookup_handler : Template queryifier(base : Template From interop:sql/lookup) {
+		{{{When lookup is performed, use the provided attribute name to find the initial row from which to start searching.}}}
+		id_attribute : $id
+		{{{The database connection to use.}}}
+		connection : Used
+
+		{{{This is the incoming identifier to be used in the query.}}}
+		id_parameter : provider.expr.base_expr_tmpl {
+			sql_type : sql_types.int
+			sql_tables : {}
+			sql_expr : "?"
+			sql_non_aggregate_columns : {}
+			sql_aggregated_tables : {}
+			sql_parameters : [ From interop:sql/lookup/id ]
+		}
+
+		{{{This is the name to be used resolved by the query.}}}
+		name_parameter : provider.expr.base_expr_tmpl {
+			sql_type : sql_types.str
+			sql_tables : {}
+			sql_expr : "?"
+			sql_non_aggregate_columns : {}
+			sql_aggregated_tables : {}
+			sql_parameters : [ From interop:sql/lookup/name ]
+		}
+
+		{{{A collection of tables provided by the database.}}}
+		table +orig:
+			For discovered : provider.table_discovery(connection : connection), defined : orig, name : Name
+				Select name :
+					If !(discovered Is Null) && !(defined Is Null)
+						Then Error "Table \(name Enforce Str) is present in the database but also manually defined."
+						Else (discovered ?? defined) Enforce Frame
+		{{{The default set of columns to retreive is all known columns from the selected tables.}}}
+		columns :
+			For col : column
+				Reduce For acc_value : acc, col_value : col, name : Name
+					Select name : acc_value ?? col_value
+				With acc : {}
+		{{{The provider, automatically selected from the database connection.}}}
+		provider :
+			((For provider : sql_providers, provider_name : Name
+				Where provider_name == connection.provider Enforce Str
+				Reduce provider With acc : Null) ?? (Error "Unsupported database “\(connection.provider Enforce Str)”. This library must be mismatched to the Flabbergast runtime.")) {}
+}

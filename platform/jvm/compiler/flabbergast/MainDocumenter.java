@@ -1,76 +1,32 @@
 package flabbergast;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.OutputStreamWriter;
-import javax.xml.transform.Transformer;
-import javax.xml.transform.TransformerFactory;
-import javax.xml.transform.dom.DOMSource;
-import javax.xml.transform.stream.StreamResult;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.stream.Stream;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.GnuParser;
 import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
-import org.w3c.dom.Document;
 
 public class MainDocumenter {
-
-  private static boolean discover(
-      File dir,
-      int trim,
-      String github,
-      boolean verbose,
-      String output_root,
-      ErrorCollector collector)
-      throws Exception {
-    boolean success = true;
-    for (File f : dir.listFiles()) {
-      if (f.isDirectory()) {
-        success &= discover(f, trim, github, verbose, output_root, collector);
-      } else if (f.isFile() && f.getName().endsWith(".o_0")) {
-        String file = f.getCanonicalPath();
-        String file_fragment = file.substring(trim, file.length() - 4);
-        String uri = file_fragment.replace(File.separatorChar, '/');
-        String output_filename =
-            output_root
-                + File.separator
-                + "doc-"
-                + file_fragment.replace(File.separatorChar, '-')
-                + ".xml";
-        if (verbose) {
-          System.out.println(file);
-        }
-        Parser parser = Parser.open(file);
-        Document doc = parser.documentFile(collector, uri, github);
-        if (doc != null) {
-          TransformerFactory transformerFactory = TransformerFactory.newInstance();
-          Transformer transformer = transformerFactory.newTransformer();
-          DOMSource source = new DOMSource(doc);
-          StreamResult result =
-              new StreamResult(
-                  new OutputStreamWriter(new FileOutputStream(new File(output_filename)), "UTF-8"));
-          transformer.transform(source, result);
-        } else {
-          success = false;
-        }
-      }
-    }
-    return success;
-  }
-
   public static void main(String[] args) {
     Options options = new Options();
     options.addOption("g", "github", true, "The URL to the GitHub version of these files.");
     options.addOption("o", "output", true, "The directory to place the docs.");
-    options.addOption("v", "verbose", false, "List files as they are being processed.");
     options.addOption("h", "help", false, "Show this message and exit");
-    CommandLineParser cl_parser = new GnuParser();
+    CommandLineParser clParser = new GnuParser();
     final CommandLine result;
 
     try {
-      result = cl_parser.parse(options, args);
+      result = clParser.parse(options, args);
     } catch (ParseException e) {
       System.err.println(e.getMessage());
       System.exit(1);
@@ -90,26 +46,47 @@ public class MainDocumenter {
       System.exit(1);
       return;
     }
-    ErrorCollector collector = new ConsoleCollector();
-    boolean success = true;
-    try {
-      for (String directory : directories) {
-        File dir = new File(directory);
-        if (dir.isDirectory()) {
-          success &=
-              discover(
-                  dir,
-                  dir.getCanonicalPath().length() + 1,
-                  result.getOptionValue('g'),
-                  result.hasOption('v'),
-                  result.getOptionValue('o', "."),
-                  collector);
-        }
-      }
-    } catch (Exception e) {
-      e.printStackTrace();
-      System.exit(1);
-    }
-    System.exit(success ? 0 : 1);
+    Path output = Paths.get(result.getOptionValue('o', "."));
+    Compiler compiler = Compiler.find(SourceFormat.FLABBERGAST, TargetFormat.APIDOC).get();
+    compiler.setGitHubUrl(result.getOptionValue('g'));
+    Set<String> brokenFiles = new HashSet<>();
+    BuildCollector collector =
+        new BuildCollector() {
+
+          @Override
+          public void emitError(SourceLocation location, String error) {
+            brokenFiles.add(location.getFileName());
+          }
+
+          @Override
+          public void emitOutput(String fileName, byte[] data) {
+            Path path = output.resolve(String.format("doc-%s.xml", fileName.replace('/', '-')));
+            try {
+              Files.createDirectories(path.getParent());
+              Files.write(
+                  path, data, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            } catch (IOException e) {
+              System.err.printf("Failed to write %s: %s\n", path, e.getMessage());
+            }
+          }
+
+          @Override
+          public void emitRoot(String fileName) {}
+        };
+    Arrays.stream(directories)
+        .map(Paths::get)
+        .flatMap(
+            directory -> {
+              try {
+                return compiler.compile(directory, SourceFormat.FLABBERGAST.getExtension());
+              } catch (IOException e) {
+                brokenFiles.add(directory.toString());
+                return Stream.empty();
+              }
+            })
+        .map(Pair::getValue)
+        .forEach(artefact -> artefact.collect(collector));
+    brokenFiles.stream().forEach(file -> System.err.println("Failed to compile: " + file));
+    System.exit(brokenFiles.isEmpty() ? 0 : 1);
   }
 }

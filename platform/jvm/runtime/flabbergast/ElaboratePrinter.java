@@ -1,104 +1,134 @@
 package flabbergast;
 
-import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-public abstract class ElaboratePrinter implements ConsumeResult {
+/** A pretty-printer for console output */
+public abstract class ElaboratePrinter {
+  private class PrintVisitor implements Future.CheckFuture {
+    private final String prefix;
 
-  @Override
-  public void consume(Object result) {
-    print(result);
-  }
-
-  protected void print(Object result) {
-    Map<Frame, String> seen = new HashMap<Frame, String>();
-    try {
-      print(result, "", seen);
-    } catch (IOException e) {
-      e.printStackTrace();
+    public PrintVisitor(String prefix) {
+      this.prefix = prefix;
     }
-  }
 
-  private void print(Object result, String prefix, Map<Frame, String> seen) throws IOException {
-    if (result == null) {
-      write("∅\n");
-    } else if (result instanceof Frame) {
-      Frame f = (Frame) result;
+    @Override
+    public void accept() {
+      write("Null\n");
+    }
+
+    @Override
+    public void accept(boolean result) {
+      write(result ? "True\n" : "False\n");
+    }
+
+    @Override
+    public void accept(byte[] result) {
+      write(Integer.toString(result.length));
+      write(" bytes of Unspeakable Horror\n");
+    }
+
+    @Override
+    public void accept(double result) {
+      write(result + "\n");
+    }
+
+    @Override
+    public void accept(Frame f) {
       if (seen.containsKey(f)) {
         write(f.getId().toString());
         write(" # Frame ");
         write(seen.get(f));
       } else {
         write("{ # Frame ");
-        String id = Integer.toString(seen.size());
+        final String id = Integer.toString(seen.size());
         write(id);
         write("\n");
         seen.put(f, id);
-        for (String name : f) {
-          write(prefix);
-          write(name);
-          write(" : ");
-          print(f.get(name), prefix + "  ", seen);
-        }
+        final PrintVisitor visitor = new PrintVisitor(prefix + "  ");
+        f.stream()
+            .forEach(
+                name -> {
+                  write(prefix);
+                  write(name);
+                  write(" : ");
+                  f.get(name).visit(visitor);
+                });
         write(prefix);
         write("}\n");
       }
-    } else if (result instanceof Boolean) {
-      write(((Boolean) result) ? "True\n" : "False\n");
-    } else if (result instanceof Template) {
-      Template t = (Template) result;
+    }
+
+    @Override
+    public void accept(long result) {
+      write(result + "\n");
+    }
+
+    @Override
+    public void accept(LookupHandler value) {
+      write("LookupHandler #");
+      write(value.description());
+      write("\n");
+    }
+
+    @Override
+    public void accept(Stringish result) {
+      write("\"");
+      final String s = result.toString();
+      for (int it = 0; it < s.length(); it++) {
+        if (s.charAt(it) == 7) {
+          write("\\a");
+        } else if (s.charAt(it) == 8) {
+          write("\\b");
+        } else if (s.charAt(it) == 12) {
+          write("\\f");
+        } else if (s.charAt(it) == 10) {
+          write("\\n");
+        } else if (s.charAt(it) == 13) {
+          write("\\r");
+        } else if (s.charAt(it) == 9) {
+          write("\\t");
+        } else if (s.charAt(it) == 11) {
+          write("\\v");
+        } else if (s.charAt(it) == 34) {
+          write("\\\"");
+        } else if (s.charAt(it) == 92) {
+          write("\\\\");
+        } else if (s.charAt(it) < 16) {
+          write("\\x0");
+          write(Integer.toHexString(s.charAt(it)));
+        } else if (s.charAt(it) < 32) {
+          write("\\x");
+          write(Integer.toHexString(s.charAt(it)));
+        } else {
+          write(s.substring(it, it + 1));
+        }
+      }
+      write("\"\n");
+    }
+
+    @Override
+    public void accept(Template template) {
       write("Template\n");
-      for (String name : t) {
+      for (final String name : template) {
         write(" ");
         write(name);
       }
       write("\n");
-    } else if (result instanceof Future) {
+    }
+
+    @Override
+    public void unfinished() {
       write("<unfinished>");
-      write("\n");
-    } else if (result instanceof Stringish) {
-      write("\"");
-      for (String s : (Stringish) result) {
-        for (int it = 0; it < s.length(); it++) {
-          if (s.charAt(it) == 7) {
-            write("\\a");
-          } else if (s.charAt(it) == 8) {
-            write("\\b");
-          } else if (s.charAt(it) == 12) {
-            write("\\f");
-          } else if (s.charAt(it) == 10) {
-            write("\\n");
-          } else if (s.charAt(it) == 13) {
-            write("\\r");
-          } else if (s.charAt(it) == 9) {
-            write("\\t");
-          } else if (s.charAt(it) == 11) {
-            write("\\v");
-          } else if (s.charAt(it) == 34) {
-            write("\\\"");
-          } else if (s.charAt(it) == 92) {
-            write("\\\\");
-          } else if (s.charAt(it) < 16) {
-            write("\\x0");
-            write(Integer.toHexString(s.charAt(it)));
-          } else if (s.charAt(it) < 32) {
-            write("\\x");
-            write(Integer.toHexString(s.charAt(it)));
-          } else {
-            write(s.substring(it, it + 1));
-          }
-        }
-      }
-      write("\"\n");
-    } else if (result instanceof byte[]) {
-      write(Integer.toString(((byte[]) result).length));
-      write(" bytes of Unspeakable Horror\n");
-    } else {
-      write(result.toString());
       write("\n");
     }
   }
 
-  protected abstract void write(String string) throws IOException;
+  private final Map<Frame, String> seen = new HashMap<>();
+
+  protected void print(Future future) {
+    future.visit(new PrintVisitor(""));
+  }
+
+  protected abstract void write(String string);
 }

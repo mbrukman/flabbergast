@@ -1,27 +1,25 @@
 package flabbergast;
 
+import java.util.function.Function;
+
 public class FunctionInterop<T, R> extends BaseFunctionInterop<R> {
-  private final Class<T> clazz;
   private final Func<T, R> func;
   private T input;
+  private final Matcher<T> matcher;
   private final String parameter;
-  private final boolean parameterNullable;
 
   public FunctionInterop(
-      Class<R> returnClass,
+      Function<R, Any> packer,
       Func<T, R> func,
-      Class<T> clazz,
-      boolean parameterNullable,
+      Matcher<T> matcher,
       String parameter,
-      TaskMaster task_master,
-      SourceReference source_reference,
+      TaskMaster taskMaster,
+      SourceReference sourceReference,
       Context context,
-      Frame self,
-      Frame container) {
-    super(task_master, source_reference, context, self, container);
+      Frame self) {
+    super(packer, taskMaster, sourceReference, context, self);
     this.func = func;
-    this.clazz = clazz;
-    this.parameterNullable = parameterNullable;
+    this.matcher = matcher;
     this.parameter = parameter;
   }
 
@@ -32,8 +30,6 @@ public class FunctionInterop<T, R> extends BaseFunctionInterop<R> {
 
   @Override
   protected void setup() {
-    Sink<T> reference_lookup = find(clazz, x -> this.input = x);
-    reference_lookup.allowDefault(parameterNullable, null);
-    reference_lookup.lookup(parameter);
+    find(matcher, x -> this.input = x, parameter);
   }
 }

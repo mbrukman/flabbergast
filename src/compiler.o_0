@@ -588,7 +588,7 @@ kws_tmpl : Template {
 	frame_container : Template base_tmpl {
 		source : Required
 		arguments : [ { value : source  item_type : type.frame } ]
-		return_type : type.context
+		return_type : type.frame
 	}
 	frame_has : Template base_tmpl {
 		source : Required

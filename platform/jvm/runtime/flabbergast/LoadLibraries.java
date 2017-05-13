@@ -1,6 +1,6 @@
 package flabbergast;
 
-public abstract class LoadLibraries implements UriLoader {
+public abstract class LoadLibraries extends UriInstantiator {
 
   private ResourcePathFinder finder;
 

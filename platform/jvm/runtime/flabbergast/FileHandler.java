@@ -1,16 +1,15 @@
 package flabbergast;
 
+import java.net.URI;
 import java.net.URL;
+import org.kohsuke.MetaInfServices;
 
-public class FileHandler extends UrlConnectionHandler {
-
-  public static final FileHandler INSTANCE = new FileHandler();
+@MetaInfServices(UriService.class)
+class FileHandler extends UrlConnectionHandler {
 
   @Override
-  protected URL convert(String uri) throws Exception {
-
-    if (!uri.startsWith("file:")) return null;
-    return new URL(uri);
+  protected Maybe<URL> convert(URI uri) {
+    return Maybe.of(uri).filter(x -> x.getScheme().equals("file")).map(URI::toURL);
   }
 
   @Override

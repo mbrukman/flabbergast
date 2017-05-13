@@ -4,98 +4,83 @@ import java.io.File;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Iterator;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.function.Function;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
-public class ResourcePathFinder implements Iterable<String> {
-  private final List<String> paths = new ArrayList<String>();
+public class ResourcePathFinder {
+  private static final Pattern PATH_SEPARATOR = Pattern.compile(Pattern.quote(File.pathSeparator));
+  private final List<Path> paths = new ArrayList<>();
+
+  public void add(Path path) {
+    paths.add(path);
+  }
 
   public void addDefaults() {
-    String env_var = System.getenv("FLABBERGAST_PATH");
-    if (env_var != null) {
-      for (String path : env_var.split(File.pathSeparator)) {
-        if (path.trim().length() > 0) {
-          paths.add(new File(path).getAbsolutePath());
-        }
-      }
-    }
-    boolean isntWindows = !System.getProperty("os.name").startsWith("Windows");
-    if (isntWindows) {
-      paths.add(
-          System.getProperty("user.home")
-              + File.separator
-              + ".local"
-              + File.separator
-              + "share"
-              + File.separator
-              + "flabbergast"
-              + File.separator
-              + "lib");
-    }
+    final boolean isntWindows = !System.getProperty("os.name").startsWith("Windows");
+    Stream.of(
+            Maybe.of(System.getenv("FLABBERGAST_PATH"))
+                .flatStream(PATH_SEPARATOR::splitAsStream)
+                .map(Paths::get),
+            isntWindows
+                ? Stream.of(
+                    Paths.get(
+                        System.getProperty("user.home"), ".local", "share", "flabbergast", "lib"))
+                : Stream.<Path>empty(),
+            getSelfPath(),
+            isntWindows
+                ? Stream.of(
+                    Paths.get("/usr/share/flabbergast/lib"),
+                    Paths.get("/usr/local/lib/flabbergast/lib"))
+                : Stream.<Path>empty())
+        .flatMap(Function.identity())
+        .forEach(paths::add);
+  }
+
+  public Optional<File> find(String basename, String... extensions) {
+    return paths
+        .stream()
+        .flatMap(
+            path -> Arrays.stream(extensions).map(extension -> path.resolve(basename + extension)))
+        .map(Path::toFile)
+        .filter(File::canRead)
+        .findFirst();
+  }
+
+  private Stream<Path> getSelfPath() {
     try {
-      String path =
-          Frame.class.getProtectionDomain().getCodeSource().getLocation().toURI().getPath();
-      paths.add(
-          path
-              + File.separator
-              + ".."
-              + File.separator
-              + ".."
-              + File.separator
-              + "flabbergast"
-              + File.separator
-              + "lib"
-              + File.separator
-              + "flabbergast");
-    } catch (URISyntaxException e) {
-    }
-    if (isntWindows) {
-      paths.add("/usr/share/flabbergast/lib");
-      paths.add("/usr/local/lib/flabbergast/lib");
+      return Stream.of(
+          Paths.get(
+              Frame.class.getProtectionDomain().getCodeSource().getLocation().toURI().getPath(),
+              "..",
+              "..",
+              "flabbergast",
+              "lib",
+              "flabbergast"));
+    } catch (final URISyntaxException e) {
+      return Stream.empty();
     }
   }
 
-  public void appendPath(String path) {
-    if (path.trim().length() > 0) {
-      paths.add(path);
-    }
-  }
-
-  public List<File> findAll(String basename, String... extensions) {
-    List<File> files = new ArrayList<File>();
-    for (String path : paths) {
-      for (String extension : extensions) {
-        File file = new File(path, basename + extension);
-        if (file.exists()) {
-          files.add(file);
-        }
-      }
-    }
-    return files;
-  }
-
-  public URL get(int index) {
-    try {
-      return new URL("file", "", paths.get(index));
-    } catch (MalformedURLException e) {
-      System.err.println(e.getMessage());
-      return null;
-    }
-  }
-
-  @Override
-  public Iterator<String> iterator() {
-    return paths.iterator();
-  }
-
-  public void prependPath(String path) {
-    if (path.trim().length() > 0) {
-      paths.add(0, path);
-    }
-  }
-
-  public int size() {
-    return paths.size();
+  public Stream<URL> urls() {
+    return paths
+        .stream()
+        .map(Path::toUri)
+        .map(
+            uri -> {
+              try {
+                return uri.toURL();
+              } catch (MalformedURLException e) {
+                return null;
+              }
+            })
+        .filter(Objects::nonNull);
   }
 }

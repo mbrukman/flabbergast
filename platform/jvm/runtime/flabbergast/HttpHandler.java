@@ -1,13 +1,18 @@
 package flabbergast;
 
-import flabbergast.TaskMaster.LibraryFailure;
-import java.io.InputStream;
-import java.net.URL;
+import java.io.DataInputStream;
+import java.net.URI;
 import java.net.URLConnection;
+import java.util.Set;
+import org.kohsuke.MetaInfServices;
 
-public class HttpHandler implements UriHandler {
+@MetaInfServices(UriService.class)
+public class HttpHandler implements UriHandler, UriService {
 
-  public static final HttpHandler INSTANCE = new HttpHandler();
+  @Override
+  public UriHandler create(ResourcePathFinder finder, Set<LoadRule> flags) {
+    return flags.contains(LoadRule.SANDBOXED) ? null : this;
+  }
 
   @Override
   public int getPriority() {
@@ -20,31 +25,22 @@ public class HttpHandler implements UriHandler {
   }
 
   @Override
-  public final Future resolveUri(TaskMaster task_master, String uri, Ptr<LibraryFailure> reason) {
+  public final Maybe<Future> resolveUri(TaskMaster taskMaster, URI uri) {
 
-    if (!uri.startsWith("http:") && !uri.startsWith("https:")) {
-      reason.set(LibraryFailure.MISSING);
-      return null;
-    }
-    try {
-      URL url = new URL(uri);
-      if (url == null) {
-        reason.set(LibraryFailure.MISSING);
-      }
-      URLConnection conn = new URL(uri).openConnection();
-      byte[] data = new byte[conn.getContentLength()];
-      InputStream inputStream = conn.getInputStream();
-      for (int offset = 0;
-          offset < data.length;
-          offset += inputStream.read(data, offset, data.length - offset)) ;
-
-      inputStream.close();
-      FixedFrame frame = new FixedFrame("http" + uri.hashCode(), new NativeSourceReference(uri));
-      frame.add("data", data);
-      frame.add("content_type", conn.getContentType());
-      return new Precomputation(frame);
-    } catch (Exception e) {
-      return new FailureFuture(task_master, new NativeSourceReference(uri), e.getMessage());
-    }
+    return Maybe.of(uri)
+        .filter(x -> uri.getScheme().equals("http") || uri.getScheme().equals("https"))
+        .map(
+            x -> {
+              final URLConnection conn = x.toURL().openConnection();
+              final byte[] data = new byte[conn.getContentLength()];
+              try (final DataInputStream inputStream = new DataInputStream(conn.getInputStream())) {
+                inputStream.readFully(data);
+              }
+              final ValueBuilder builder = new ValueBuilder();
+              builder.set("data", Any.of(data));
+              builder.set("content_type", Any.of(conn.getContentType()));
+              return Any.of(Frame.create("http" + uri.hashCode(), uri.toString(), builder))
+                  .future();
+            });
   }
 }

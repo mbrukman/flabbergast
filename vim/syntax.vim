@@ -21,33 +21,36 @@ syn match flabbergastEscape contained containedin=flabbergastString "\\\(\o\{3}\
 syn region flabbergastInterpolation contained contains=TOP matchgroup=flabbergastDelimiter start="\\(" end=")"
 
 syn match flabbergastTrailingWhite "[ \t]\+$"
-syn match flabbergastTrailingWhite "[ \t]\+$" containedin=ALL
-syn match flabbergastAttribute "+:\|+\|:\([ \t]*\(Drop\|Now\|Required\|Used\)\)\?" display contained
+syn match flabbergastTrailingWhite "[ \t]\+$" containedin=flabbergastDefinition
+syn match flabbergastKeyword "+\|:" containedin=ALL
+syn keyword flabbergastKeyword Drop Now Required Used
 syn match flabbergastIdentifier "\<args\>" display
 syn match flabbergastIdentifier "\<value\>" display
 syn match flabbergastIdentifier "\<bin\>" display
 syn match flabbergastIdentifier "\<bool\>" display
 syn match flabbergastIdentifier "\<float\>" display
 syn match flabbergastIdentifier "\<frame\>" display
+syn match flabbergastIdentifier "\<lookup_handler\>" display
 syn match flabbergastIdentifier "\<int\>" display
 syn match flabbergastIdentifier "\<template\>" display
 syn match flabbergastIdentifier "\<str\>" display
-syn match flabbergastIdentifier "\<[a-z][A-Za-z0-9_]*\>[ \t\n]*\(+\([a-z][A-Za-z0-9_]*\)\?\)\?[ \t\n]*:" display contains=flabbergastAttribute
+syn match flabbergastDefinition "\<[a-z][A-Za-z0-9_]*\>[ \t\n]*\(+\([a-z][A-Za-z0-9_]*\)\)\?:" display
+syn region flabbergastDefinition display contains=TOP matchgroup=flabbergastAttribute start="\(Attribute\|TypeOf\)(" end=")[ \t\n]*\(+\([a-z][A-Za-z0-9_]*\)\?\)\?:"
 syn match flabbergastComment "#.*$" contains=flabbergastTodo,@Spell display
 syn keyword flabbergastInt IntMax IntMin
 syn keyword flabbergastFloat FloatMax FloatMin Infinity NaN
 syn keyword flabbergastBool False True
-syn keyword flabbergastConstant Null
+syn keyword flabbergastConstant Null Contextual
 syn match flabbergastBadKeyword "\<[A-WYZ][^ \t#]*" display
 syn match flabbergastIdentifierString "\$[a-z][a-zA-Z0-9_]*\>" display
 syn match flabbergastFrom "[A-Za-z0-9.+-]\+:[A-Za-z0-9~!*'_;@&=+$,/?%#.+-:]\+" display
 syn keyword flabbergastFrom From
-syn keyword flabbergastFricassee By Each For Name Order Ordinal Reduce Reverse Select With
+syn keyword flabbergastFricassee Accumulate By Each Flatten For Group Name Named Order Ordinal Reduce Reverse Select Shuffle Single Skip Or Until With Where
 syn keyword flabbergastConditional If Then Else
-syn keyword flabbergastKeyword Accumulate Append Container Enforce Error Finite Function GenerateId Id In Is Length Let Lookup Template This Through To TypeOf Where
+syn keyword flabbergastKeyword Append Attribute Container Enforce Error Finite Function GenerateId Here Id In Is Length Let Lookup Template This Through To TypeOf Using Within
 syn match flabbergastOperators '\(<=\=\|<=>\|>=\=\|==\|||\|-\|!=\=\|/\|\*\|&\|&&\|%\|+\|??\|B|\|B^\|B&\|B!\)' display
 syn keyword flabbergastTodo contained containedin=flabbergastComment TODO FIXME XXX
-syn keyword flabbergastType Bin Bool Float Frame Int Str
+syn keyword flabbergastType Bin Bool Float Frame Int LookupHandler Str
 syn match flabbergastImplDefined "\<X[a-zA-Z0-9]*\>" display
 syn match flabbergastConstant "\<\d\+[kMG]i\=\>" display
 syn match flabbergastConstant "\<\(\d\+[dhms]\)\+\>" display
@@ -64,6 +67,7 @@ hi def link flabbergastBool		Boolean
 hi def link flabbergastComment		Comment
 hi def link flabbergastConditional	Conditional
 hi def link flabbergastConstant		Constant
+hi def link flabbergastDefinition	Identifier
 hi def link flabbergastDelimiter	Delimiter
 hi def link flabbergastDescDelimiter	Delimiter
 hi def link flabbergastDescription	Comment

@@ -36,6 +36,7 @@ function expandAll(id) {
 function pageLoad() {
     updateSelection("showPartials");
     updateSelection("hideExternals");
+    openTab('searchtab');
     var showTerm = function() {
         var term = document.location.hash;
         if (term.startsWith("#term-")) {
@@ -54,7 +55,8 @@ function pageLoad() {
     var showLoadError = function(context, message) {
         var p = document.createElement("p");
         p.appendChild(document.createTextNode(context + ": " + (message || "Unknown error")));
-        document.getElementById("references").appendChild(p);
+        var refsTab = document.getElementById("refstab");
+        refsTab.insertBefore(p, refsTab.firstChild);
     };
     var libraryNames = getLibraries();
     if (libraryNames.length == 0) {
@@ -154,6 +156,20 @@ function pageLoad() {
     xsltRequest.open("GET", "o_0-xref.xsl", true);
     xsltRequest.overrideMimeType("text/xml");
     xsltRequest.send();
+}
+
+function openTab(tab) {
+    var i;
+    var tabs = document.getElementsByClassName("tab");
+    for (i = 0; i < tabs.length; i++) {
+        tabs[i].style.display = "none";
+    }
+    var buttons = document.getElementById("tabbar").children;
+    for (i = 0; i < buttons.length; i++) {
+        buttons[i].className = "";
+    }
+    document.getElementById(tab).style.display = null;
+    document.getElementById(tab + "button").className = "selected";
 }
 
 function searchClear() {

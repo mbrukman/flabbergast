@@ -1,11 +1,16 @@
 package flabbergast;
 
-import flabbergast.TaskMaster.LibraryFailure;
+import java.net.URI;
+import java.util.Set;
 
-public class BuiltInLibraries implements UriLoader {
-  public static final BuiltInLibraries INSTANCE = new BuiltInLibraries();
+class BuiltInLibraries extends UriInstantiator implements UriService {
 
   private BuiltInLibraries() {}
+
+  @Override
+  public UriHandler create(ResourcePathFinder finder, Set<LoadRule> flags) {
+    return this;
+  }
 
   @Override
   public int getPriority() {
@@ -18,17 +23,10 @@ public class BuiltInLibraries implements UriLoader {
   }
 
   @Override
-  @SuppressWarnings("unchecked")
-  public Class<? extends Future> resolveUri(String uri, Ptr<LibraryFailure> failure) {
-    if (!uri.startsWith("lib:")) {
-      return null;
-    }
-    String type_name = "flabbergast.library." + uri.substring(4).replace('/', '.');
-    try {
-      return (Class<? extends Future>) Class.forName(type_name);
-    } catch (ClassNotFoundException e) {
-      failure.set(LibraryFailure.MISSING);
-      return null;
-    }
+  public Maybe<Class<? extends Future>> resolveUri(URI uri) {
+    return Maybe.of(uri)
+        .filter(x -> x.getScheme().equals("lib"))
+        .map(UriHandler::convertLibraryUriToClass)
+        .map(typeName -> Class.forName(typeName).asSubclass(Future.class));
   }
 }
